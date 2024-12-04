@@ -1,0 +1,11 @@
+with-expecter: true
+dir: "{{.InterfaceDir}}/mocks"
+mockname: "{{.InterfaceName}}"
+filename: "{{.InterfaceNameSnake}}.go"
+outpkg: "mocks"
+include-regex: ".+Mock"
+issue-845-fix: True
+packages:
+  tinvest-go/internal/pkg/client/bot:
+  tinvest-go/internal/pkg/client/cbrf:
+  tinvest-go/internal/pkg/client/tinvest:

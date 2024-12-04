@@ -1,0 +1,6 @@
+/bin
+/test
+.DS_Store
+.env
+.vscode
+*.sqlite

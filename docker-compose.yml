@@ -1,0 +1,14 @@
+services:
+  tinvest-bot:
+    image: tinvest-bot
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./database:/app/database
+    env_file:
+      - ./.env
+    environment:
+      - TINVEST_BOT_TOKEN=$TINVEST_BOT_TOKEN
+      - TINVEST_BOT_DEBUG=$TINVEST_BOT_DEBUG
+    restart: always
