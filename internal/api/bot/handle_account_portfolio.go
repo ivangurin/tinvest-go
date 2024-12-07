@@ -59,9 +59,8 @@ func (a *api) HandleAccountPortfolio(ctx context.Context, user *model.User, requ
 	}
 
 	var sb strings.Builder
-	var fromPosition = 0
-	var toPosition = 0
-
+	var fromPosition int
+	var toPosition int
 	for i := 0; i < int(messageCounter); i++ {
 		fromPosition = i * positionsPerMessage
 		toPosition = fromPosition + positionsPerMessage

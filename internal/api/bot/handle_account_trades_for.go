@@ -13,6 +13,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
+// nolint:funlen
 func (a *api) HandleAccountTradesFor(ctx context.Context, user *model.User, request *tgbotapi.Message) error {
 	messageID, err := a.botClient.SendMessageWithText(ctx, request.Chat.ID, texts.Processing)
 	if err != nil {
