@@ -22,10 +22,12 @@ type IService interface {
 	GetAccounts(ctx context.Context, token string) (model.Accounts, error)
 	GetAccountByID(ctx context.Context, token string, accountID string) (*model.Account, error)
 	GetAccountByName(ctx context.Context, token string, name string) (*model.Account, error)
-	GetFavorites(ctx context.Context, token string, accountID string) (model.Instruments, error)
+	GetFavorites(ctx context.Context, token string) (model.Instruments, error)
 	GetPortfolio(ctx context.Context, token string, accountID string) (model.Portfolio, error)
 	GetInstruments(ctx context.Context, token string, accountID string, IDs []string) (model.Instruments, error)
 	GetOperations(ctx context.Context, token string, accountID string, from time.Time, to time.Time, instrumentIDs []string) (model.Operations, error)
+	GetCandles(ctx context.Context, token string, instrumentID string, interval contractv1.CandleInterval, from time.Time, to time.Time) (model.Candles, error)
+	GetTrades(ctx context.Context, token string, accountID string, from time.Time, to time.Time) (model.Trades, error)
 }
 
 type service struct {
@@ -82,7 +84,7 @@ func (s *service) GetAccountByID(ctx context.Context, token string, accountID st
 		}
 	}
 
-	return nil, fmt.Errorf("account %s not found", accountID)
+	return nil, nil
 }
 
 func (s *service) GetAccountByName(ctx context.Context, token string, name string) (*model.Account, error) {
@@ -99,19 +101,26 @@ func (s *service) GetAccountByName(ctx context.Context, token string, name strin
 	return nil, fmt.Errorf("account %s not found", name)
 }
 
-func (s *service) GetFavorites(ctx context.Context, accountID string, token string) (model.Instruments, error) {
+func (s *service) GetFavorites(ctx context.Context, token string) (model.Instruments, error) {
 	favorites, err := s.tinvestClient.GetFavorites(ctx, token)
 	if err != nil {
 		return nil, err
 	}
 
-	instrumentIDs := utils.ToSet(favorites, func(favorite *model.Favorite) string { return favorite.ID })
-	instruments, err := s.GetInstruments(ctx, token, accountID, instrumentIDs.ToSlice())
-	if err != nil {
-		return nil, err
+	res := make(model.Instruments, len(favorites))
+	for _, favorite := range favorites {
+		instruments, err := s.GetInstruments(ctx, token, "", []string{favorite.ID})
+		if err != nil {
+			logger.Errorf(ctx, "error on get instrument %s by id %s: %s", favorite.Ticker, favorite.ID, err.Error())
+			continue
+		}
+		if len(instruments) == 0 {
+			continue
+		}
+		res[favorite.ID] = instruments[favorite.ID]
 	}
 
-	return instruments, nil
+	return res, nil
 }
 
 func (s *service) GetPortfolio(ctx context.Context, token string, accountID string) (model.Portfolio, error) {
@@ -460,7 +469,7 @@ func (s *service) GetOperations(ctx context.Context, token string, accountID str
 func (s *service) GetPositions(ctx context.Context, token string, accountID string, from time.Time, to time.Time, instrumentIDs []string) (model.Positions, error) {
 	instruments, err := s.GetInstruments(ctx, token, accountID, instrumentIDs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get in: %w", err)
+		return nil, fmt.Errorf("failed to get instruments for account %s: %w", accountID, err)
 	}
 
 	operations, err := s.GetOperations(ctx, token, accountID, from, to, instrumentIDs)

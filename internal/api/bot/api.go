@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"tinvest-go/internal/model"
 	bot_client "tinvest-go/internal/pkg/client/bot"
 	"tinvest-go/internal/pkg/logger"
 	history_service "tinvest-go/internal/service/history"
@@ -31,20 +30,39 @@ type api struct {
 	lastCommand    map[int64]string
 }
 
+const (
+	commandAccount               = "/account/%s"
+	commandAccountTotals         = "/account/%s/totals"
+	commandAccountPortfolio      = "/account/%s/portfolio"
+	commandAccountDetail         = "/account/%s/detail"
+	commandAccountPositions      = "/account/%s/positions"
+	commandAccountPosition       = "/account/%s/position"
+	commandAccountPositionDetail = "/account/%s/position/%s"
+	commandAccountTrades         = "/account/%s/trades"
+	commandAccountTradesFor      = "/account/%s/trades-for/%s"
+
+	tradesForCurrDay   = "currDay"
+	tradesForPrevDay   = "prevDay"
+	tradesForCurrWeek  = "currWeek"
+	tradesForPrevWeek  = "prevWeek"
+	tradesForCurrMonth = "currMonth"
+	tradesForPrevMonth = "prevMonth"
+)
+
 var (
 	regexpStart                 *regexp.Regexp = newRegexp(`^\/start$`)
 	regexpToken                 *regexp.Regexp = newRegexp(`^\/token$`)
 	regexpAccounts              *regexp.Regexp = newRegexp(`^\/accounts$`)
-	regexpAccount               *regexp.Regexp = newRegexp(`^\/accounts\/([0-9]+)$`)
-	regexpAccountTotals         *regexp.Regexp = newRegexp(`\/accounts\/(.+)\/totals`)
-	regexpAccountPortfolio      *regexp.Regexp = newRegexp(`\/accounts\/(.+)\/portfolio`)
-	regexpAccountDetail         *regexp.Regexp = newRegexp(`\/accounts\/(.+)\/detail`)
-	regexpAccountPositions      *regexp.Regexp = newRegexp(`\/accounts\/(.+)\/positions`)
-	regexpAccountPosition       *regexp.Regexp = newRegexp(`^\/accounts\/(.+)\/position$`)
-	regexpAccountPositionDetail *regexp.Regexp = newRegexp(`^\/accounts\/(.+)\/position\/(.+)$`)
-	regexpAccountTrades         *regexp.Regexp = newRegexp(`^\/accounts\/(.+)\/trades$`)
-	regexpAccountTradesFor      *regexp.Regexp = newRegexp(`^\/accounts\/(.+)\/trades\/(.+)$`)
-	regexpRsiD                  *regexp.Regexp = newRegexp(`^\/rsid$`)
+	regexpAccount               *regexp.Regexp = newRegexp(`^\/account\/([0-9]+)$`)
+	regexpAccountTotals         *regexp.Regexp = newRegexp(`^\/account\/(.+)\/totals$`)
+	regexpAccountPortfolio      *regexp.Regexp = newRegexp(`^\/account\/(.+)\/portfolio$`)
+	regexpAccountDetail         *regexp.Regexp = newRegexp(`^\/account\/(.+)\/detail$`)
+	regexpAccountPositions      *regexp.Regexp = newRegexp(`^\/account\/(.+)\/positions$`)
+	regexpAccountPosition       *regexp.Regexp = newRegexp(`^\/account\/(.+)\/position$`)
+	regexpAccountPositionDetail *regexp.Regexp = newRegexp(`^\/account\/(.+)\/position\/(.+)$`)
+	regexpAccountTrades         *regexp.Regexp = newRegexp(`^\/account\/(.+)\/trades$`)
+	regexpAccountTradesFor      *regexp.Regexp = newRegexp(`^\/account\/(.+)\/trades-for\/(.+)$`)
+	regexpRsiDaily              *regexp.Regexp = newRegexp(`^\/rsi/daily$`)
 )
 
 func NewAPI(
@@ -82,6 +100,42 @@ func NewAPI(
 		{
 			Pattern: regexpAccount,
 			Handler: a.HandleAccount,
+		},
+		{
+			Pattern: regexpAccountPortfolio,
+			Handler: a.HandleAccountPortfolio,
+		},
+		{
+			Pattern: regexpAccountTotals,
+			Handler: a.HandleAccountTotals,
+		},
+		{
+			Pattern: regexpAccountDetail,
+			Handler: a.HandleAccountDetail,
+		},
+		{
+			Pattern: regexpAccountPositions,
+			Handler: a.HandleAccountPositions,
+		},
+		{
+			Pattern: regexpAccountPosition,
+			Handler: a.HandleAccountPosition,
+		},
+		{
+			Pattern: regexpAccountPositionDetail,
+			Handler: a.HandleAccountPosition,
+		},
+		{
+			Pattern: regexpAccountTrades,
+			Handler: a.HandleAccountTrades,
+		},
+		{
+			Pattern: regexpAccountTradesFor,
+			Handler: a.HandleAccountTradesFor,
+		},
+		{
+			Pattern: regexpRsiDaily,
+			Handler: a.HandleRSIDaily,
 		},
 	}
 
@@ -132,84 +186,45 @@ func (a *api) handleRequest(ctx context.Context, update *tgbotapi.Update) error 
 		return nil
 	}
 
-	user, err := a.updateUser(ctx, message)
-	if err != nil {
-		return fmt.Errorf("failed to update user: %w", err)
-	}
-
-	_, err = a.historyService.CreateRecord(ctx, message.From.ID, message.Text)
+	_, err := a.historyService.CreateRecord(ctx, message.From.ID, message.Text)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
+	}
+
+	user, err := a.userService.GetUserByID(ctx, message.From.ID)
+	if err != nil {
+		return fmt.Errorf("failed to get user %d: %w", user.ID, err)
 	}
 
 	var command string
 	if isCommand(message.Text) {
 		command = message.Text
-		a.lastCommand[user.ID] = command
+		a.lastCommand[message.From.ID] = command
 	} else {
-		command = a.lastCommand[user.ID]
+		command = a.lastCommand[message.From.ID]
+	}
+
+	if !regexpStart.MatchString(command) &&
+		!regexpToken.MatchString(command) {
+		if user == nil || user.Token == "" {
+			message := tgbotapi.NewMessage(message.From.ID, texts.TokenIsEmpty)
+			_, err := a.botClient.SendMessage(ctx, &message)
+			if err != nil {
+				return err
+			}
+			return nil
+		}
 	}
 
 	for _, handler := range a.handlers {
 		if handler.Pattern.MatchString(command) {
 			err = handler.Handler(ctx, user, message)
 			if err != nil {
-				return fmt.Errorf("failed to handle command %s by user %d: %w", command, user.ID, err)
+				return fmt.Errorf("failed to handle command %s from user %d: %w", command, message.From.ID, err)
 			}
 		}
 	}
 
-	return nil
-}
-
-func (a *api) updateUser(ctx context.Context, message *tgbotapi.Message) (*model.User, error) {
-	if message.From.IsBot {
-		return nil, nil
-	}
-
-	exist, err := a.userService.IsUserExists(ctx, message.From.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check user existance: %w", err)
-	}
-
-	var user *model.User
-	if exist {
-		user, err = a.userService.GetUserByID(ctx, message.From.ID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get user %d: %w", user.ID, err)
-		}
-	} else {
-		user = &model.User{
-			ID:     message.From.ID,
-			ChatID: message.Chat.ID,
-		}
-	}
-
-	user.Username = message.From.UserName
-	user.FirstName = message.From.FirstName
-	user.LastName = message.From.LastName
-
-	if exist {
-		err = a.userService.UpdateUser(ctx, user)
-		if err != nil {
-			return nil, fmt.Errorf("failed to update user %d: %w", user.ID, err)
-		}
-	} else {
-		user, err = a.userService.CreateUser(ctx, user)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create user %d: %w", user.ID, err)
-		}
-	}
-
-	return user, nil
-}
-
-func (a *api) sendMessageNoToken(ctx context.Context, user *model.User) error {
-	message := tgbotapi.NewMessage(user.ChatID, texts.TokenIsEmpty)
-	_, err := a.botClient.SendMessage(ctx, &message)
-	if err != nil {
-		return err
-	}
 	return nil
 }
 

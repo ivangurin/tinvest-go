@@ -113,13 +113,13 @@ func (a *api) HandleAccountPosition(ctx context.Context, user *model.User, reque
 	// 	sb.WriteString(fmt.Sprintf(texts.PositionQuantityBuy, position.QuantityBuy))
 	// 	sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionPriceBuy, ac.FormatMoney(position.PriceBuy), ac.FormatMoney(position.PriceBuyRub)))
+	// 	sb.WriteString(fmt.Sprintf(texts.PositionPriceBuy, a.accounting.FormatMoney(position.PriceBuy), a.accounting.FormatMoney(position.PriceBuyRub)))
 	// 	sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionValueBuy, ac.FormatMoney(position.ValueBuy), ac.FormatMoney(position.ValueBuyRub)))
+	// 	sb.WriteString(fmt.Sprintf(texts.PositionValueBuy, a.accounting.FormatMoney(position.ValueBuy), a.accounting.FormatMoney(position.ValueBuyRub)))
 	// 	sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionNKDBuy, ac.FormatMoney(position.NKDBuy), ac.FormatMoney(position.NKDBuyRub)))
+	// 	sb.WriteString(fmt.Sprintf(texts.PositionNKDBuy, a.accounting.FormatMoney(position.NKDBuy), a.accounting.FormatMoney(position.NKDBuyRub)))
 	// 	sb.WriteString("\n")
 
 	// 	sb.WriteString("\n")
@@ -127,13 +127,13 @@ func (a *api) HandleAccountPosition(ctx context.Context, user *model.User, reque
 	// 	sb.WriteString(fmt.Sprintf(texts.PositionQuantitySell, position.QuantitySell))
 	// 	sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionPriceSell, ac.FormatMoney(position.PriceSell), ac.FormatMoney(position.PriceSellRub)))
+	// 	sb.WriteString(fmt.Sprintf(texts.PositionPriceSell, a.accounting.FormatMoney(position.PriceSell), a.accounting.FormatMoney(position.PriceSellRub)))
 	// 	sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionValueSell, ac.FormatMoney(position.ValueSell), ac.FormatMoney(position.ValueSellRub)))
+	// 	sb.WriteString(fmt.Sprintf(texts.PositionValueSell, a.accounting.FormatMoney(position.ValueSell), a.accounting.FormatMoney(position.ValueSellRub)))
 	// 	sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionNKDSell, ac.FormatMoney(position.NKDSell), ac.FormatMoney(position.NKDSellRub)))
+	// 	sb.WriteString(fmt.Sprintf(texts.PositionNKDSell, a.accounting.FormatMoney(position.NKDSell), a.accounting.FormatMoney(position.NKDSellRub)))
 	// 	sb.WriteString("\n")
 
 	// 	sb.WriteString("\n")
@@ -141,35 +141,35 @@ func (a *api) HandleAccountPosition(ctx context.Context, user *model.User, reque
 	// 	sb.WriteString(fmt.Sprintf(texts.PositionQuantityEnd, position.QuantityEnd))
 	// 	sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionPriceEnd, ac.FormatMoney(position.PriceEnd), ac.FormatMoney(position.PriceEndRub)))
+	// 	sb.WriteString(fmt.Sprintf(texts.PositionPriceEnd, a.accounting.FormatMoney(position.PriceEnd), a.accounting.FormatMoney(position.PriceEndRub)))
 	// 	sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionValueEnd, ac.FormatMoney(position.ValueEnd), ac.FormatMoney(position.ValueEndRub)))
+	// 	sb.WriteString(fmt.Sprintf(texts.PositionValueEnd, a.accounting.FormatMoney(position.ValueEnd), a.accounting.FormatMoney(position.ValueEndRub)))
 	// 	sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionNKDEnd, ac.FormatMoney(position.NKDEnd), ac.FormatMoney(position.NKDEndRub)))
-	// 	sb.WriteString("\n")
-
-	// 	sb.WriteString("\n")
-
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionDividends, ac.FormatMoney(position.Dividents), ac.FormatMoney(position.DividentsRub)))
-	// 	sb.WriteString("\n")
-
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionCoupons, ac.FormatMoney(position.Coupons), ac.FormatMoney(position.CouponsRub)))
-	// 	sb.WriteString("\n")
-
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionOvernight, ac.FormatMoney(position.Overnight), ac.FormatMoney(position.OvernightRub)))
-	// 	sb.WriteString("\n")
-
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionTaxes, ac.FormatMoney(position.Taxes), ac.FormatMoney(position.TaxesRub)))
-	// 	sb.WriteString("\n")
-
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionCommissions, ac.FormatMoney(position.Commissions), ac.FormatMoney(position.CommissionsRub)))
+	// 	sb.WriteString(fmt.Sprintf(texts.PositionNKDEnd, a.accounting.FormatMoney(position.NKDEnd), a.accounting.FormatMoney(position.NKDEndRub)))
 	// 	sb.WriteString("\n")
 
 	// 	sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionTotal, ac.FormatMoney(position.Total), ac.FormatMoney(position.TotalRub)))
+	// 	sb.WriteString(fmt.Sprintf(texts.PositionDividends, a.accounting.FormatMoney(position.Dividents), a.accounting.FormatMoney(position.DividentsRub)))
+	// 	sb.WriteString("\n")
+
+	// 	sb.WriteString(fmt.Sprintf(texts.PositionCoupons, a.accounting.FormatMoney(position.Coupons), a.accounting.FormatMoney(position.CouponsRub)))
+	// 	sb.WriteString("\n")
+
+	// 	sb.WriteString(fmt.Sprintf(texts.PositionOvernight, a.accounting.FormatMoney(position.Overnight), a.accounting.FormatMoney(position.OvernightRub)))
+	// 	sb.WriteString("\n")
+
+	// 	sb.WriteString(fmt.Sprintf(texts.PositionTaxes, a.accounting.FormatMoney(position.Taxes), a.accounting.FormatMoney(position.TaxesRub)))
+	// 	sb.WriteString("\n")
+
+	// 	sb.WriteString(fmt.Sprintf(texts.PositionCommissions, a.accounting.FormatMoney(position.Commissions), a.accounting.FormatMoney(position.CommissionsRub)))
+	// 	sb.WriteString("\n")
+
+	// 	sb.WriteString("\n")
+
+	// 	sb.WriteString(fmt.Sprintf(texts.PositionTotal, a.accounting.FormatMoney(position.Total), a.accounting.FormatMoney(position.TotalRub)))
 	// 	sb.WriteString("\n")
 
 	// 	sb.WriteString("\n")

@@ -55,10 +55,10 @@ func (a *api) HandleAccountTotals(ctx context.Context, user *model.User, request
 
 	// for _, total := range totals {
 	// 	totalRub += total.TotalRub
-	// 	sb.WriteString(fmt.Sprintf("<b>%s</b>: %s(%s руб.)\n", strings.ToUpper(total.Currency), ac.FormatMoney(total.Total), ac.FormatMoney(total.TotalRub)))
+	// 	sb.WriteString(fmt.Sprintf("<b>%s</b>: %s(%s руб.)\n", strings.ToUpper(total.Currency), a.accounting.FormatMoney(total.Total), a.accounting.FormatMoney(total.TotalRub)))
 	// }
 
-	// sb.WriteString(fmt.Sprintf(texts.TotalRubles, ac.FormatMoney(totalRub)))
+	// sb.WriteString(fmt.Sprintf(texts.TotalRubles, a.accounting.FormatMoney(totalRub)))
 
 	// message = tgbotapi.NewMessage(user.ChatID, "")
 	// message.ParseMode = tgbotapi.ModeHTML

@@ -88,9 +88,9 @@ func (a *api) HandleAccountPositions(ctx context.Context, user *model.User, requ
 	// 		sb.WriteString(
 	// 			fmt.Sprintf(texts.PositionResult,
 	// 				position.Ticker,
-	// 				ac.FormatMoney(position.Total),
+	// 				a.accounting.FormatMoney(position.Total),
 	// 				position.Currency,
-	// 				ac.FormatMoney(position.TotalRub)))
+	// 				a.accounting.FormatMoney(position.TotalRub)))
 
 	// 	}
 

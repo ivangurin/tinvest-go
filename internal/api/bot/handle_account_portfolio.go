@@ -2,129 +2,128 @@ package bot
 
 import (
 	"context"
+	"fmt"
+	"math"
+	"strings"
+	"time"
 	"tinvest-go/internal/model"
+	"tinvest-go/internal/pkg/logger"
+	"tinvest-go/internal/texts"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 func (a *api) HandleAccountPortfolio(ctx context.Context, user *model.User, request *tgbotapi.Message) error {
+	message := tgbotapi.NewMessage(user.ChatID, texts.Processing)
+	messageID, err := a.botClient.SendMessage(ctx, &message)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err := a.botClient.DeleteMessage(ctx, user.ChatID, messageID)
+		if err != nil {
+			logger.Errorf(ctx, "error on delete message: %s", err.Error())
+		}
+	}()
 
-	// exists, err := checkToken(user)
-	// if err != nil {
-	// 	return err
-	// }
-	// if !exists {
-	// 	return nil
-	// }
+	result := regexpAccountPortfolio.FindAllStringSubmatch(request.Text, -1)
+	if len(result) == 0 || len(result[0]) == 0 {
+		return fmt.Errorf("can't parse account id in '%s'", request.Text)
+	}
+	accountID := result[0][1]
 
-	// message := tgbotapi.NewMessage(user.ChatID, texts.Processing)
-	// messageID, err := a.botClient.SendMessage(ctx, &message)
-	// if err != nil {
-	// 	return err
-	// }
+	account, err := a.tinvestService.GetAccountByID(ctx, user.Token, accountID)
+	if err != nil {
+		message = tgbotapi.NewMessage(user.ChatID, fmt.Sprintf(texts.AccountNotFound, accountID))
+		_, err = a.botClient.SendMessage(ctx, &message)
+		if err != nil {
+			return err
+		}
+		return err
+	}
 
-	// defer deleteMessage(user.ChatID, messageID)
+	if account == nil {
+		message = tgbotapi.NewMessage(user.ChatID, fmt.Sprintf(texts.AccountNotFound, accountID))
+		_, err = a.botClient.SendMessage(ctx, &message)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
 
-	// tiClient, err := tinvest.NewClient(user.Token, repo)
-	// if err != nil {
-	// 	return errors.Errorf("error on create tinkoff client: %+v", err)
-	// }
+	positions, err := a.tinvestService.GetPortfolio(ctx, user.Token, accountID)
+	if err != nil {
+		return fmt.Errorf("failed to get portfolio for %s: %w", accountID, err)
+	}
 
-	// account, err := tiClient.GetAccount(accountId)
-	// if err != nil {
-	// 	return errors.Errorf("error on get account %s: %+v", accountId, err)
-	// }
+	messageCounter, rest := math.Modf(float64(len(positions)) / float64(positionsPerMessage))
+	if rest > 0 {
+		messageCounter += 1
+	}
 
-	// if account == nil {
-	// 	return nil
-	// }
+	var sb strings.Builder
+	var fromPosition = 0
+	var toPosition = 0
 
-	// tiClient.SetAccountId(account.Id)
+	for i := 0; i < int(messageCounter); i++ {
+		fromPosition = i * positionsPerMessage
+		toPosition = fromPosition + positionsPerMessage
+		if toPosition > len(positions) {
+			toPosition = len(positions)
+		}
 
-	// positions, err := tiClient.GetPortfolio()
-	// if err != nil {
-	// 	return errors.Errorf("error on get portfolio for %s: %+v", accountId, err)
-	// }
+		sb = strings.Builder{}
+		if i == 0 {
+			sb.WriteString(fmt.Sprintf(texts.AccountPortfolioTitle, account.Name, time.Now().Format("02.01.2006 15:04")))
+			sb.WriteString("\n")
+		}
+		if messageCounter > 1 {
+			sb.WriteString(fmt.Sprintf(texts.AccountPositionsPart, i+1, int(messageCounter)))
+			sb.WriteString("\n")
+		}
 
-	// messageCounter, rest := math.Modf(float64(len(positions)) / float64(positionsPerMessage))
+		for _, position := range positions[fromPosition:toPosition] {
+			if position.Currency == model.CurrencyRUB {
+				sb.WriteString(
+					fmt.Sprintf(texts.AccountPortfolioPositionRub,
+						position.Ticker,
+						position.Quantity,
+						position.Currency,
+						a.accounting.FormatMoney(position.Price),
+						a.accounting.FormatMoney(position.Value),
+						a.accounting.FormatMoney(position.PriceEnd),
+						a.accounting.FormatMoney(position.ValueEnd),
+						a.accounting.FormatMoney(position.Total),
+						a.accounting.FormatMoney(position.Percent)))
+			} else {
+				sb.WriteString(
+					fmt.Sprintf(texts.AccountPortfolioPosition,
+						position.Ticker,
+						position.Quantity,
+						position.Currency,
+						a.accounting.FormatMoney(position.Price),
+						a.accounting.FormatMoney(position.Value),
+						a.accounting.FormatMoney(position.ValueRub),
+						a.accounting.FormatMoney(position.PriceEnd),
+						a.accounting.FormatMoney(position.ValueEnd),
+						a.accounting.FormatMoney(position.ValueEndRub),
+						a.accounting.FormatMoney(position.Total),
+						a.accounting.FormatMoney(position.Percent),
+						a.accounting.FormatMoney(position.TotalRub),
+						a.accounting.FormatMoney(position.PercentRub)))
+			}
+		}
 
-	// if rest > 0 {
-	// 	messageCounter += 1
-	// }
+		message = tgbotapi.NewMessage(user.ChatID, "")
+		message.ParseMode = tgbotapi.ModeHTML
+		message.Text = sb.String()
 
-	// var sb strings.Builder
-	// var fromPosition = 0
-	// var toPosition = 0
+		_, err = a.botClient.SendMessage(ctx, &message)
+		if err != nil {
+			return err
+		}
 
-	// for i := 0; i < int(messageCounter); i++ {
-
-	// 	fromPosition = i * positionsPerMessage
-	// 	toPosition = fromPosition + positionsPerMessage
-
-	// 	if toPosition > len(positions) {
-	// 		toPosition = len(positions)
-	// 	}
-
-	// 	sb = strings.Builder{}
-
-	// 	if i == 0 {
-	// 		sb.WriteString(fmt.Sprintf(texts.AccountPortfolioTitle, account.Name, time.Now().Format("02.01.2006 15:04")))
-	// 		sb.WriteString("\n")
-	// 	}
-
-	// 	if messageCounter > 1 {
-	// 		sb.WriteString(fmt.Sprintf(texts.AccountPositionsPart, i+1, int(messageCounter)))
-	// 		sb.WriteString("\n")
-	// 	}
-
-	// 	for _, position := range positions[fromPosition:toPosition] {
-
-	// 		if position.Currency == tinvest.CurrencyRUB {
-
-	// 			sb.WriteString(
-	// 				fmt.Sprintf(texts.AccountPortfolioPositionRub,
-	// 					position.Ticker,
-	// 					position.Quantity,
-	// 					position.Currency,
-	// 					ac.FormatMoney(position.Price),
-	// 					ac.FormatMoney(position.Value),
-	// 					ac.FormatMoney(position.PriceEnd),
-	// 					ac.FormatMoney(position.ValueEnd),
-	// 					ac.FormatMoney(position.Total),
-	// 					ac.FormatMoney(position.Percent)))
-
-	// 		} else {
-
-	// 			sb.WriteString(
-	// 				fmt.Sprintf(texts.AccountPortfolioPosition,
-	// 					position.Ticker,
-	// 					position.Quantity,
-	// 					position.Currency,
-	// 					ac.FormatMoney(position.Price),
-	// 					ac.FormatMoney(position.Value),
-	// 					ac.FormatMoney(position.ValueRub),
-	// 					ac.FormatMoney(position.PriceEnd),
-	// 					ac.FormatMoney(position.ValueEnd),
-	// 					ac.FormatMoney(position.ValueEndRub),
-	// 					ac.FormatMoney(position.Total),
-	// 					ac.FormatMoney(position.Percent),
-	// 					ac.FormatMoney(position.TotalRub),
-	// 					ac.FormatMoney(position.PercentRub)))
-
-	// 		}
-
-	// 	}
-
-	// 	message = tgbotapi.NewMessage(user.ChatID, "")
-	// 	message.ParseMode = tgbotapi.ModeHTML
-	// 	message.Text = sb.String()
-
-	// 	_, err = a.botClient.SendMessage(ctx, &message)
-	// 	if err != nil {
-	// 		return err
-	// 	}
-
-	// }
+	}
 
 	return nil
 }

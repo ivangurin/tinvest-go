@@ -13,6 +13,7 @@ import (
 	"tinvest-go/internal/model"
 	contractv1 "tinvest-go/internal/pb"
 	grpc_utils "tinvest-go/internal/pkg/grpc"
+	"tinvest-go/internal/pkg/logger"
 	"tinvest-go/internal/pkg/utils"
 )
 
@@ -98,13 +99,16 @@ func (c *Client) GetInstrumentsByIDs(ctx context.Context, token string, IDs []st
 	mu := sync.Mutex{}
 	for _, id := range IDs {
 		errGr.Go(func() error {
+
 			req := &contractv1.InstrumentRequest{
 				IdType: contractv1.InstrumentIdType_INSTRUMENT_ID_TYPE_UID,
 				Id:     id,
 			}
 			resp, err := c.InstrumentsAPI.GetInstrumentBy(errCtx, req, grpc_utils.NewAuth(token))
 			if err != nil {
-				return fmt.Errorf("failed to request instrument by id %s: %w", id, err)
+				logger.Errorf(ctx, "failed to request instrument by id %s: %s", id, err.Error())
+				return nil
+				// return fmt.Errorf("failed to request instrument by id %s: %w", id, err)
 			}
 
 			var currResp *contractv1.CurrencyResponse
@@ -261,7 +265,9 @@ func (c *Client) GetOperations(
 			for {
 				resp, err := c.OperationsAPI.GetOperationsByCursor(errCtx, req, grpc_utils.NewAuth(token))
 				if err != nil {
-					return fmt.Errorf("failed to request operations for instrument %s: %w", instrumentID, err)
+					logger.Errorf(ctx, "failed to request operations for instrument %s: %s", instrumentID, err.Error())
+					return nil
+					// return fmt.Errorf("failed to request operations for instrument %s: %w", instrumentID, err)
 				}
 
 				operations = append(operations, convertOperations(resp.GetItems())...)

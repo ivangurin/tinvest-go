@@ -60,53 +60,53 @@ func (a *api) HandleAccountDetail(ctx context.Context, user *model.User, request
 	// 	sb.WriteString(fmt.Sprintf(texts.CurrecnyLabel, strings.ToUpper(total.Currency)))
 	// 	sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.ValueBuyLabel, ac.FormatMoney(total.ValueBuy), ac.FormatMoney(total.ValueBuyRub)))
+	// 	sb.WriteString(fmt.Sprintf(texts.ValueBuyLabel, a.accounting.FormatMoney(total.ValueBuy), a.accounting.FormatMoney(total.ValueBuyRub)))
 	// 	sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.ValueSellLabel, ac.FormatMoney(total.ValueSell), ac.FormatMoney(total.ValueSellRub)))
+	// 	sb.WriteString(fmt.Sprintf(texts.ValueSellLabel, a.accounting.FormatMoney(total.ValueSell), a.accounting.FormatMoney(total.ValueSellRub)))
 	// 	sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.ValueEndLabel, ac.FormatMoney(total.ValueEnd), ac.FormatMoney(total.ValueEndRub)))
+	// 	sb.WriteString(fmt.Sprintf(texts.ValueEndLabel, a.accounting.FormatMoney(total.ValueEnd), a.accounting.FormatMoney(total.ValueEndRub)))
 	// 	sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.NKDBuyLabel, ac.FormatMoney(total.NKDBuy), ac.FormatMoney(total.NKDBuyRub)))
+	// 	sb.WriteString(fmt.Sprintf(texts.NKDBuyLabel, a.accounting.FormatMoney(total.NKDBuy), a.accounting.FormatMoney(total.NKDBuyRub)))
 	// 	sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.NKDSellLabel, ac.FormatMoney(total.NKDSell), ac.FormatMoney(total.NKDSellRub)))
+	// 	sb.WriteString(fmt.Sprintf(texts.NKDSellLabel, a.accounting.FormatMoney(total.NKDSell), a.accounting.FormatMoney(total.NKDSellRub)))
 	// 	sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.NKDEndLabel, ac.FormatMoney(total.NKDEnd), ac.FormatMoney(total.NKDEndRub)))
+	// 	sb.WriteString(fmt.Sprintf(texts.NKDEndLabel, a.accounting.FormatMoney(total.NKDEnd), a.accounting.FormatMoney(total.NKDEndRub)))
 	// 	sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.CouponsLabel, ac.FormatMoney(total.Coupons), ac.FormatMoney(total.CouponsRub)))
+	// 	sb.WriteString(fmt.Sprintf(texts.CouponsLabel, a.accounting.FormatMoney(total.Coupons), a.accounting.FormatMoney(total.CouponsRub)))
 	// 	sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.DividentsLabel, ac.FormatMoney(total.Dividents), ac.FormatMoney(total.DividentsRub)))
+	// 	sb.WriteString(fmt.Sprintf(texts.DividentsLabel, a.accounting.FormatMoney(total.Dividents), a.accounting.FormatMoney(total.DividentsRub)))
 	// 	sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.OvernightLabel, ac.FormatMoney(total.Overnight), ac.FormatMoney(total.OvernightRub)))
+	// 	sb.WriteString(fmt.Sprintf(texts.OvernightLabel, a.accounting.FormatMoney(total.Overnight), a.accounting.FormatMoney(total.OvernightRub)))
 	// 	sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.TaxesLabel, ac.FormatMoney(total.Taxes), ac.FormatMoney(total.TaxesRub)))
+	// 	sb.WriteString(fmt.Sprintf(texts.TaxesLabel, a.accounting.FormatMoney(total.Taxes), a.accounting.FormatMoney(total.TaxesRub)))
 	// 	sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.CommissionsLabel, ac.FormatMoney(total.Commissions), ac.FormatMoney(total.CommissionsRub)))
+	// 	sb.WriteString(fmt.Sprintf(texts.CommissionsLabel, a.accounting.FormatMoney(total.Commissions), a.accounting.FormatMoney(total.CommissionsRub)))
 	// 	sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.CommissionsTrackLabel, ac.FormatMoney(total.TrackFee), ac.FormatMoney(total.TrackFeeRub)))
+	// 	sb.WriteString(fmt.Sprintf(texts.CommissionsTrackLabel, a.accounting.FormatMoney(total.TrackFee), a.accounting.FormatMoney(total.TrackFeeRub)))
 	// 	sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.CommissionsResultLabel, ac.FormatMoney(total.ResultFee), ac.FormatMoney(total.ResultFeeRub)))
+	// 	sb.WriteString(fmt.Sprintf(texts.CommissionsResultLabel, a.accounting.FormatMoney(total.ResultFee), a.accounting.FormatMoney(total.ResultFeeRub)))
 	// 	sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.TotalLabel, ac.FormatMoney(total.Total), ac.FormatMoney(total.TotalRub)))
+	// 	sb.WriteString(fmt.Sprintf(texts.TotalLabel, a.accounting.FormatMoney(total.Total), a.accounting.FormatMoney(total.TotalRub)))
 	// 	sb.WriteString("\n")
 
 	// 	sb.WriteString("\n")
 
 	// }
 
-	// sb.WriteString(fmt.Sprintf(texts.TotalRubLabel, ac.FormatMoney(totalRub)))
+	// sb.WriteString(fmt.Sprintf(texts.TotalRubLabel, a.accounting.FormatMoney(totalRub)))
 	// sb.WriteString("\n")
 
 	// message = tgbotapi.NewMessage(user.ChatID, "")
