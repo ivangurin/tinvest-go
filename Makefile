@@ -73,8 +73,8 @@ test: prepare-test
 	go test -v -count=1 -race ./...
 
 start:
-	docker-compose up -d
+	docker compose up -d
 
 stop:
-	docker-compose down
+	docker compose down
 	docker image rm tinvest-bot
