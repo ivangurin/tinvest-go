@@ -65,6 +65,7 @@ migrate-status: .bin-goose
 	$(LOCAL_BIN)/goose -dir $(GOOSE_MIGRATION_DIR) $(GOOSE_DRIVER) $(GOOSE_DSN) status
 
 prepare-test: .bin-goose
+	mkdir -p ./database
 	rm -f ./database/database_test.sqlite
 	$(LOCAL_BIN)/goose -dir $(GOOSE_MIGRATION_DIR) $(GOOSE_DRIVER) $(GOOSE_DSN_TEST) up
 

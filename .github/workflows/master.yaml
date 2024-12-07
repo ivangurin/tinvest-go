@@ -20,14 +20,8 @@ jobs:
         with:
           go-version: "stable"
 
-      - name: Show GO version
-        run: go version
-
       - name: Linter
         run: make lint
-
-      - name: Prepare test
-        run: make prepare-test
 
       - name: Test
         run: make test
