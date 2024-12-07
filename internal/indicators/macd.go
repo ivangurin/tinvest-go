@@ -1,20 +1,11 @@
 package indicators
 
 import (
-	"time"
-
 	"github.com/sdcoffey/big"
 	"github.com/sdcoffey/techan"
 
 	"tinvest-go/internal/model"
 )
-
-type MACDValue struct {
-	Time  time.Time
-	Value float64
-}
-
-type MACDResult []*MACDValue
 
 func GetMACD(candles model.Candles) MACDResult {
 	techanTimeSeries := techan.NewTimeSeries()

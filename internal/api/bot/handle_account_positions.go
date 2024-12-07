@@ -8,12 +8,15 @@ import (
 	"time"
 	"tinvest-go/internal/model"
 	"tinvest-go/internal/pkg/logger"
+	tinvest_service "tinvest-go/internal/service/tinvest"
 	"tinvest-go/internal/texts"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-func (a *api) HandleAccountPortfolio(ctx context.Context, user *model.User, request *tgbotapi.Message) error {
+const positionsPerMessage = 50
+
+func (a *api) HandleAccountPositions(ctx context.Context, user *model.User, request *tgbotapi.Message) error {
 	messageID, err := a.botClient.SendMessageWithText(ctx, request.Chat.ID, texts.Processing)
 	if err != nil {
 		return err
@@ -25,7 +28,7 @@ func (a *api) HandleAccountPortfolio(ctx context.Context, user *model.User, requ
 		}
 	}()
 
-	result := regexpAccountPortfolio.FindAllStringSubmatch(request.Text, -1)
+	result := regexpAccountPositions.FindAllStringSubmatch(request.Text, -1)
 	if len(result) == 0 || len(result[0]) == 0 {
 		return fmt.Errorf("can't parse account id in '%s'", request.Text)
 	}
@@ -33,7 +36,7 @@ func (a *api) HandleAccountPortfolio(ctx context.Context, user *model.User, requ
 
 	account, err := a.tinvestService.GetAccountByID(ctx, user.Token, accountID)
 	if err != nil {
-		_, err = a.botClient.SendMessageWithText(ctx, request.Chat.ID, fmt.Sprintf(texts.AccountNotFound, accountID))
+		_, err = a.botClient.SendMessageWithText(ctx, request.Chat.ID, texts.GetDataError)
 		if err != nil {
 			return err
 		}
@@ -48,9 +51,9 @@ func (a *api) HandleAccountPortfolio(ctx context.Context, user *model.User, requ
 		return nil
 	}
 
-	positions, err := a.tinvestService.GetPortfolio(ctx, user.Token, accountID)
+	positions, err := a.tinvestService.GetPositions(ctx, user.Token, accountID, tinvest_service.From, time.Now(), nil)
 	if err != nil {
-		return fmt.Errorf("failed to get portfolio for %s: %w", accountID, err)
+		return err
 	}
 
 	messageCounter, rest := math.Modf(float64(len(positions)) / float64(positionsPerMessage))
@@ -70,51 +73,33 @@ func (a *api) HandleAccountPortfolio(ctx context.Context, user *model.User, requ
 
 		sb = strings.Builder{}
 		if i == 0 {
-			sb.WriteString(fmt.Sprintf(texts.AccountPortfolioTitle, account.Name, time.Now().Format("02.01.2006 15:04")))
+			sb.WriteString(fmt.Sprintf(texts.AccountPositionsTitle, account.Name, time.Now().Format("02.01.2006 15:04")))
 			sb.WriteString("\n")
 		}
+
 		if messageCounter > 1 {
 			sb.WriteString(fmt.Sprintf(texts.AccountPositionsPart, i+1, int(messageCounter)))
 			sb.WriteString("\n")
 		}
 
 		for _, position := range positions[fromPosition:toPosition] {
-			if position.Currency == model.CurrencyRUB {
-				sb.WriteString(
-					fmt.Sprintf(texts.AccountPortfolioPositionRub,
-						position.Ticker,
-						position.Quantity,
-						position.Currency,
-						a.accounting.FormatMoney(position.Price),
-						a.accounting.FormatMoney(position.Value),
-						a.accounting.FormatMoney(position.PriceEnd),
-						a.accounting.FormatMoney(position.ValueEnd),
-						a.accounting.FormatMoney(position.Total),
-						a.accounting.FormatMoney(position.Percent)))
-			} else {
-				sb.WriteString(
-					fmt.Sprintf(texts.AccountPortfolioPosition,
-						position.Ticker,
-						position.Quantity,
-						position.Currency,
-						a.accounting.FormatMoney(position.Price),
-						a.accounting.FormatMoney(position.Value),
-						a.accounting.FormatMoney(position.ValueRub),
-						a.accounting.FormatMoney(position.PriceEnd),
-						a.accounting.FormatMoney(position.ValueEnd),
-						a.accounting.FormatMoney(position.ValueEndRub),
-						a.accounting.FormatMoney(position.Total),
-						a.accounting.FormatMoney(position.Percent),
-						a.accounting.FormatMoney(position.TotalRub),
-						a.accounting.FormatMoney(position.PercentRub)))
+			if position.Ticker == "" {
+				continue
 			}
+
+			sb.WriteString(
+				fmt.Sprintf(texts.PositionResult,
+					position.Ticker,
+					a.accounting.FormatMoney(position.Total),
+					position.Currency,
+					a.accounting.FormatMoney(position.TotalRub)))
+
 		}
 
 		_, err = a.botClient.SendMessageWithText(ctx, request.Chat.ID, sb.String())
 		if err != nil {
 			return err
 		}
-
 	}
 
 	return nil

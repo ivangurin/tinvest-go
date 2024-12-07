@@ -10,7 +10,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-func (a *api) HandleAccount(ctx context.Context, user *model.User, request *tgbotapi.Message) error {
+func (a *api) HandleAccountTrades(ctx context.Context, user *model.User, request *tgbotapi.Message) error {
 	messageID, err := a.botClient.SendMessageWithText(ctx, request.Chat.ID, texts.Processing)
 	if err != nil {
 		return err
@@ -22,7 +22,7 @@ func (a *api) HandleAccount(ctx context.Context, user *model.User, request *tgbo
 		}
 	}()
 
-	result := regexpAccount.FindAllStringSubmatch(request.Text, -1)
+	result := regexpAccountTrades.FindAllStringSubmatch(request.Text, -1)
 	if len(result) == 0 || len(result[0]) == 0 {
 		return fmt.Errorf("can't parse account id in '%s'", request.Text)
 	}
@@ -30,7 +30,7 @@ func (a *api) HandleAccount(ctx context.Context, user *model.User, request *tgbo
 
 	account, err := a.tinvestService.GetAccountByID(ctx, user.Token, accountID)
 	if err != nil {
-		_, err = a.botClient.SendMessageWithText(ctx, request.Chat.ID, texts.GetDataError)
+		_, err = a.botClient.SendMessageWithText(ctx, request.Chat.ID, fmt.Sprintf(texts.AccountNotFound, accountID))
 		if err != nil {
 			return err
 		}
@@ -45,26 +45,26 @@ func (a *api) HandleAccount(ctx context.Context, user *model.User, request *tgbo
 		return nil
 	}
 
-	message := tgbotapi.NewMessage(request.Chat.ID, fmt.Sprintf(texts.AccountTitle, account.Name))
+	message := tgbotapi.NewMessage(request.Chat.ID, "")
 	message.ReplyMarkup =
 		tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData(texts.AccountPortfolio, fmt.Sprintf(commandAccountPortfolio, account.ID)),
+				tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf(texts.AccountTradesCurrDay), fmt.Sprintf(commandAccountTradesFor, account.ID, tradesForCurrDay)),
 			),
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData(texts.AccountTotals, fmt.Sprintf(commandAccountTotals, account.ID)),
+				tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf(texts.AccountTradesPrevDay), fmt.Sprintf(commandAccountTradesFor, account.ID, tradesForPrevDay)),
 			),
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData(texts.AccountDetail, fmt.Sprintf(commandAccountDetail, account.ID)),
+				tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf(texts.AccountTradesCurrWeek), fmt.Sprintf(commandAccountTradesFor, account.ID, tradesForCurrWeek)),
 			),
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData(texts.AccountPositions, fmt.Sprintf(commandAccountPositions, account.ID)),
+				tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf(texts.AccountTradesPrevWeek), fmt.Sprintf(commandAccountTradesFor, account.ID, tradesForPrevWeek)),
 			),
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData(texts.AccountPosition, fmt.Sprintf(commandAccountPosition, account.ID)),
+				tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf(texts.AccountTradesCurrMonth), fmt.Sprintf(commandAccountTradesFor, account.ID, tradesForCurrMonth)),
 			),
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData(texts.AccountTrades, fmt.Sprintf(commandAccountTrades, account.ID)),
+				tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf(texts.AccountTradesPrevMonth), fmt.Sprintf(commandAccountTradesFor, account.ID, tradesForPrevMonth)),
 			))
 
 	_, err = a.botClient.SendMessage(ctx, &message)

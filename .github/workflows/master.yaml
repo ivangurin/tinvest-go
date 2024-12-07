@@ -13,18 +13,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5
         with:
           go-version: "stable"
 
       - name: Show GO version
         run: go version
 
+      - name: Linter
+        run: make lint
+
+      - name: Prepare test
+        run: make prepare-test
+
       - name: Test
-        run: go test -v -count=1 -race ./...
+        run: make test
 
   # build_and_push:
   #   runs-on: ubuntu-latest

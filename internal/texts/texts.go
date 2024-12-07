@@ -7,7 +7,7 @@ const (
 	YouShouldDoThis             string = "Для работы с ботом необходимо получить и указать токен. Рекомендую получить токен с доступом только для чтения."
 	GetTkn                      string = "Получить токен"
 	SetTkn                      string = "Указать токен"
-	TokenUrl                    string = "https://www.tinkoff.ru/invest/settings/api/"
+	TokenUrl                    string = "https://www.tbank.ru/invest/settings/api/"
 	WriteToken                  string = "Теперь укажите токен"
 	TokenIsDeleted              string = "В целях безопасности сообщение с токеном было удалено"
 	TokenIsSaved                string = "Токен был успешно сохранен"

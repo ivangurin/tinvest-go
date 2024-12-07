@@ -10,19 +10,17 @@ import (
 )
 
 func (a *api) HandleStart(ctx context.Context, user *model.User, request *tgbotapi.Message) error {
-	message := tgbotapi.NewMessage(user.ChatID, fmt.Sprintf(texts.Hi, user.FirstName))
-	_, err := a.botClient.SendMessage(ctx, &message)
+	_, err := a.botClient.SendMessageWithText(ctx, request.Chat.ID, fmt.Sprintf(texts.Hi, request.From.FirstName))
 	if err != nil {
 		return err
 	}
 
-	message = tgbotapi.NewMessage(user.ChatID, texts.About)
-	_, err = a.botClient.SendMessage(ctx, &message)
+	_, err = a.botClient.SendMessageWithText(ctx, request.Chat.ID, texts.About)
 	if err != nil {
 		return err
 	}
 
-	message = tgbotapi.NewMessage(user.ChatID, texts.YouShouldDoThis)
+	message := tgbotapi.NewMessage(request.Chat.ID, texts.YouShouldDoThis)
 	message.ReplyMarkup =
 		tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(

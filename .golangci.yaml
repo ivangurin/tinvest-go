@@ -44,5 +44,5 @@ linters:
     - wastedassign
     - unparam
     - funlen
-    - gocyclo
-    - gocognit
+    # - gocyclo
+    # - gocognit

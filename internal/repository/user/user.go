@@ -79,15 +79,15 @@ func (r *Repository) CreateUser(ctx context.Context, user *model.User) (*model.U
 		Insert(tableUsers).
 		Values(
 			dbUser.ID,
-			dbUser.ChatID,
 			dbUser.Username,
 			dbUser.FirstName,
 			dbUser.LastName,
-			dbUser.Role,
 			dbUser.Token,
 			dbUser.CreatedAt,
 			dbUser.ChangedAt,
-			dbUser.DeletedAt)
+			dbUser.DeletedAt,
+			dbUser.ChatID,
+			dbUser.Role)
 
 	query, args, err := builder.ToSql()
 	if err != nil {

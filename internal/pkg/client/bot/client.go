@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"tinvest-go/internal/pkg/logger"
+	"tinvest-go/internal/pkg/utils"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -64,8 +65,7 @@ func (c *client) SendMessage(ctx context.Context, messageConfig *tgbotapi.Messag
 }
 
 func (c *client) SendMessageWithText(ctx context.Context, chatID int64, text string) (int, error) {
-	message := tgbotapi.NewMessage(chatID, text)
-	return c.SendMessage(ctx, &message)
+	return c.SendMessage(ctx, utils.Ptr(tgbotapi.NewMessage(chatID, text)))
 }
 
 func (c *client) DeleteMessage(ctx context.Context, chatID int64, messageID int) error {

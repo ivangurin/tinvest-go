@@ -3,6 +3,7 @@ package tinvest_client
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"tinvest-go/internal/model"
 	contractv1 "tinvest-go/internal/pb"
 	grpc_utils "tinvest-go/internal/pkg/grpc"
+	"tinvest-go/internal/pkg/logger"
 	"tinvest-go/internal/pkg/utils"
 )
 
@@ -25,6 +27,7 @@ type IClient interface {
 	GetFavorites(ctx context.Context, token string) (model.Favorites, error)
 	GetPortfolio(ctx context.Context, token string, accountID string) (PortfolioPositions, error)
 	GetInstrumentsByIDs(ctx context.Context, token string, IDs []string) (model.Instruments, error)
+	GetInstrumentsByTicker(ctx context.Context, token string, ticker string) (model.Instruments, error)
 	GetCurrencies(ctx context.Context, token string) (model.Instruments, error)
 	GetShares(ctx context.Context, token string) (model.Instruments, error)
 	GetBonds(ctx context.Context, token string) (model.Instruments, error)
@@ -98,13 +101,16 @@ func (c *Client) GetInstrumentsByIDs(ctx context.Context, token string, IDs []st
 	mu := sync.Mutex{}
 	for _, id := range IDs {
 		errGr.Go(func() error {
+
 			req := &contractv1.InstrumentRequest{
 				IdType: contractv1.InstrumentIdType_INSTRUMENT_ID_TYPE_UID,
 				Id:     id,
 			}
 			resp, err := c.InstrumentsAPI.GetInstrumentBy(errCtx, req, grpc_utils.NewAuth(token))
 			if err != nil {
-				return fmt.Errorf("failed to request instrument by id %s: %w", id, err)
+				logger.Errorf(ctx, "failed to request instrument by id %s: %s", id, err.Error())
+				return nil
+				// return fmt.Errorf("failed to request instrument by id %s: %w", id, err)
 			}
 
 			var currResp *contractv1.CurrencyResponse
@@ -150,6 +156,26 @@ func (c *Client) GetInstrumentsByIDs(ctx context.Context, token string, IDs []st
 	}
 
 	return instruments, nil
+}
+
+func (c *Client) GetInstrumentsByTicker(ctx context.Context, token string, ticker string) (model.Instruments, error) {
+	req := &contractv1.FindInstrumentRequest{
+		Query: strings.ToUpper(ticker),
+	}
+	resp, err := c.InstrumentsAPI.FindInstrument(ctx, req, grpc_utils.NewAuth(token))
+	if err != nil {
+		return nil, fmt.Errorf("failed to request to fine instrument by ticker %s: %w", ticker, err)
+	}
+	if len(resp.GetInstruments()) == 0 {
+		return nil, nil
+	}
+
+	instrumentsIDs := make([]string, 0, len(resp.GetInstruments()))
+	for _, instrument := range resp.GetInstruments() {
+		instrumentsIDs = append(instrumentsIDs, instrument.GetUid())
+	}
+
+	return c.GetInstrumentsByIDs(ctx, token, instrumentsIDs)
 }
 
 func (c *Client) GetCurrencies(ctx context.Context, token string) (model.Instruments, error) {
@@ -261,7 +287,9 @@ func (c *Client) GetOperations(
 			for {
 				resp, err := c.OperationsAPI.GetOperationsByCursor(errCtx, req, grpc_utils.NewAuth(token))
 				if err != nil {
-					return fmt.Errorf("failed to request operations for instrument %s: %w", instrumentID, err)
+					logger.Errorf(ctx, "failed to request operations for instrument %s: %s", instrumentID, err.Error())
+					return nil
+					// return fmt.Errorf("failed to request operations for instrument %s: %w", instrumentID, err)
 				}
 
 				operations = append(operations, convertOperations(resp.GetItems())...)

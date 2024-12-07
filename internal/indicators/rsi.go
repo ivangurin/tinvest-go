@@ -1,20 +1,11 @@
 package indicators
 
 import (
-	"time"
-
 	"github.com/sdcoffey/big"
 	"github.com/sdcoffey/techan"
 
 	"tinvest-go/internal/model"
 )
-
-type RSIValue struct {
-	Time  time.Time
-	Value float64
-}
-
-type RSIResult []*RSIValue
 
 func GetRSI(candles model.Candles) RSIResult {
 	techanTimeSeries := techan.NewTimeSeries()
