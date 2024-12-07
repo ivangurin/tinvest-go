@@ -11,8 +11,7 @@ import (
 
 func (a *api) HandleToken(ctx context.Context, user *model.User, request *tgbotapi.Message) error {
 	if isCommand(request.Text) {
-		message := tgbotapi.NewMessage(request.Chat.ID, texts.WriteToken)
-		_, err := a.botClient.SendMessage(ctx, &message)
+		_, err := a.botClient.SendMessageWithText(ctx, request.Chat.ID, texts.WriteToken)
 		if err != nil {
 			return err
 		}

@@ -11,13 +11,12 @@ import (
 )
 
 func (a *api) HandleAccounts(ctx context.Context, user *model.User, request *tgbotapi.Message) error {
-	message := tgbotapi.NewMessage(user.ChatID, texts.Processing)
-	messageID, err := a.botClient.SendMessage(ctx, &message)
+	messageID, err := a.botClient.SendMessageWithText(ctx, request.Chat.ID, texts.Processing)
 	if err != nil {
 		return err
 	}
 	defer func() {
-		err := a.botClient.DeleteMessage(ctx, user.ChatID, messageID)
+		err := a.botClient.DeleteMessage(ctx, request.Chat.ID, messageID)
 		if err != nil {
 			logger.Errorf(ctx, "error on delete message: %s", err.Error())
 		}
@@ -25,8 +24,7 @@ func (a *api) HandleAccounts(ctx context.Context, user *model.User, request *tgb
 
 	accounts, err := a.tinvestService.GetAccounts(ctx, user.Token)
 	if err != nil {
-		message = tgbotapi.NewMessage(user.ChatID, texts.GetDataError)
-		_, err = a.botClient.SendMessage(ctx, &message)
+		_, err = a.botClient.SendMessageWithText(ctx, request.Chat.ID, texts.GetDataError)
 		if err != nil {
 			return err
 		}
@@ -42,7 +40,7 @@ func (a *api) HandleAccounts(ctx context.Context, user *model.User, request *tgb
 		rows = append(rows, row)
 	}
 
-	message = tgbotapi.NewMessage(user.ChatID, texts.AccountsList)
+	message := tgbotapi.NewMessage(request.Chat.ID, texts.AccountsList)
 	message.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
 	_, err = a.botClient.SendMessage(ctx, &message)
 	if err != nil {

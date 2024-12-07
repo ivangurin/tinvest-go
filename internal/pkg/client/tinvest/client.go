@@ -3,6 +3,7 @@ package tinvest_client
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,6 +27,7 @@ type IClient interface {
 	GetFavorites(ctx context.Context, token string) (model.Favorites, error)
 	GetPortfolio(ctx context.Context, token string, accountID string) (PortfolioPositions, error)
 	GetInstrumentsByIDs(ctx context.Context, token string, IDs []string) (model.Instruments, error)
+	GetInstrumentsByTicker(ctx context.Context, token string, ticker string) (model.Instruments, error)
 	GetCurrencies(ctx context.Context, token string) (model.Instruments, error)
 	GetShares(ctx context.Context, token string) (model.Instruments, error)
 	GetBonds(ctx context.Context, token string) (model.Instruments, error)
@@ -154,6 +156,26 @@ func (c *Client) GetInstrumentsByIDs(ctx context.Context, token string, IDs []st
 	}
 
 	return instruments, nil
+}
+
+func (c *Client) GetInstrumentsByTicker(ctx context.Context, token string, ticker string) (model.Instruments, error) {
+	req := &contractv1.FindInstrumentRequest{
+		Query: strings.ToUpper(ticker),
+	}
+	resp, err := c.InstrumentsAPI.FindInstrument(ctx, req, grpc_utils.NewAuth(token))
+	if err != nil {
+		return nil, fmt.Errorf("failed to request to fine instrument by ticker %s: %w", ticker, err)
+	}
+	if len(resp.GetInstruments()) == 0 {
+		return nil, nil
+	}
+
+	instrumentsIDs := make([]string, 0, len(resp.GetInstruments()))
+	for _, instrument := range resp.GetInstruments() {
+		instrumentsIDs = append(instrumentsIDs, instrument.GetUid())
+	}
+
+	return c.GetInstrumentsByIDs(ctx, token, instrumentsIDs)
 }
 
 func (c *Client) GetCurrencies(ctx context.Context, token string) (model.Instruments, error) {

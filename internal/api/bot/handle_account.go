@@ -11,13 +11,12 @@ import (
 )
 
 func (a *api) HandleAccount(ctx context.Context, user *model.User, request *tgbotapi.Message) error {
-	message := tgbotapi.NewMessage(user.ChatID, texts.Processing)
-	messageID, err := a.botClient.SendMessage(ctx, &message)
+	messageID, err := a.botClient.SendMessageWithText(ctx, request.Chat.ID, texts.Processing)
 	if err != nil {
 		return err
 	}
 	defer func() {
-		err := a.botClient.DeleteMessage(ctx, user.ChatID, messageID)
+		err := a.botClient.DeleteMessage(ctx, request.Chat.ID, messageID)
 		if err != nil {
 			logger.Errorf(ctx, "error on delete message: %s", err.Error())
 		}
@@ -31,8 +30,7 @@ func (a *api) HandleAccount(ctx context.Context, user *model.User, request *tgbo
 
 	account, err := a.tinvestService.GetAccountByID(ctx, user.Token, accountID)
 	if err != nil {
-		message = tgbotapi.NewMessage(user.ChatID, texts.GetDataError)
-		_, err = a.botClient.SendMessage(ctx, &message)
+		_, err = a.botClient.SendMessageWithText(ctx, request.Chat.ID, texts.GetDataError)
 		if err != nil {
 			return err
 		}
@@ -40,16 +38,14 @@ func (a *api) HandleAccount(ctx context.Context, user *model.User, request *tgbo
 	}
 
 	if account == nil {
-		message = tgbotapi.NewMessage(user.ChatID, fmt.Sprintf(texts.AccountNotFound, accountID))
-		_, err = a.botClient.SendMessage(ctx, &message)
+		_, err = a.botClient.SendMessageWithText(ctx, request.Chat.ID, fmt.Sprintf(texts.AccountNotFound, accountID))
 		if err != nil {
 			return err
 		}
 		return nil
 	}
 
-	message = tgbotapi.NewMessage(user.ChatID, "")
-	message.Text = fmt.Sprintf(texts.AccountTitle, account.Name)
+	message := tgbotapi.NewMessage(request.Chat.ID, fmt.Sprintf(texts.AccountTitle, account.Name))
 	message.ReplyMarkup =
 		tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(

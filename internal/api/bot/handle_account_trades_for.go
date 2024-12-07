@@ -14,13 +14,12 @@ import (
 )
 
 func (a *api) HandleAccountTradesFor(ctx context.Context, user *model.User, request *tgbotapi.Message) error {
-	message := tgbotapi.NewMessage(user.ChatID, texts.Processing)
-	messageID, err := a.botClient.SendMessage(ctx, &message)
+	messageID, err := a.botClient.SendMessageWithText(ctx, request.Chat.ID, texts.Processing)
 	if err != nil {
 		return err
 	}
 	defer func() {
-		err := a.botClient.DeleteMessage(ctx, user.ChatID, messageID)
+		err := a.botClient.DeleteMessage(ctx, request.Chat.ID, messageID)
 		if err != nil {
 			logger.Errorf(ctx, "error on delete message: %s", err.Error())
 		}
@@ -35,8 +34,7 @@ func (a *api) HandleAccountTradesFor(ctx context.Context, user *model.User, requ
 
 	account, err := a.tinvestService.GetAccountByID(ctx, user.Token, accountID)
 	if err != nil {
-		message = tgbotapi.NewMessage(user.ChatID, fmt.Sprintf(texts.AccountNotFound, accountID))
-		_, err = a.botClient.SendMessage(ctx, &message)
+		_, err = a.botClient.SendMessageWithText(ctx, request.Chat.ID, fmt.Sprintf(texts.AccountNotFound, accountID))
 		if err != nil {
 			return err
 		}
@@ -44,8 +42,7 @@ func (a *api) HandleAccountTradesFor(ctx context.Context, user *model.User, requ
 	}
 
 	if account == nil {
-		message = tgbotapi.NewMessage(user.ChatID, fmt.Sprintf(texts.AccountNotFound, accountID))
-		_, err = a.botClient.SendMessage(ctx, &message)
+		_, err = a.botClient.SendMessageWithText(ctx, request.Chat.ID, fmt.Sprintf(texts.AccountNotFound, accountID))
 		if err != nil {
 			return err
 		}
@@ -107,9 +104,7 @@ func (a *api) HandleAccountTradesFor(ctx context.Context, user *model.User, requ
 
 	if len(trades) == 0 {
 		sb.WriteString(texts.AccountTradesNoTrades)
-		message = tgbotapi.NewMessage(user.ChatID, "")
-		message.Text = sb.String()
-		_, err = a.botClient.SendMessage(ctx, &message)
+		_, err = a.botClient.SendMessageWithText(ctx, request.Chat.ID, sb.String())
 		if err != nil {
 			return err
 		}
@@ -173,17 +168,13 @@ func (a *api) HandleAccountTradesFor(ctx context.Context, user *model.User, requ
 
 		sb.WriteString(fmt.Sprintf(texts.AccountTradesTotalDay, a.accounting.FormatMoney(totalDayRub)))
 
-		message = tgbotapi.NewMessage(user.ChatID, "")
-		message.Text = sb.String()
-		_, err = a.botClient.SendMessage(ctx, &message)
+		_, err = a.botClient.SendMessageWithText(ctx, request.Chat.ID, sb.String())
 		if err != nil {
 			return err
 		}
 	}
 
-	message = tgbotapi.NewMessage(user.ChatID, "")
-	message.Text = fmt.Sprintf(texts.AccountTradesTotal, title, a.accounting.FormatMoney(totalRub))
-	_, err = a.botClient.SendMessage(ctx, &message)
+	_, err = a.botClient.SendMessageWithText(ctx, request.Chat.ID, fmt.Sprintf(texts.AccountTradesTotal, title, a.accounting.FormatMoney(totalRub)))
 	if err != nil {
 		return err
 	}

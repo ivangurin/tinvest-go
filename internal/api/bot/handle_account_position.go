@@ -2,186 +2,166 @@ package bot
 
 import (
 	"context"
+	"fmt"
+	"strings"
+	"time"
 	"tinvest-go/internal/model"
+	"tinvest-go/internal/pkg/logger"
+	tinvest_service "tinvest-go/internal/service/tinvest"
+	"tinvest-go/internal/texts"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 func (a *api) HandleAccountPosition(ctx context.Context, user *model.User, request *tgbotapi.Message) error {
+	messageID, err := a.botClient.SendMessageWithText(ctx, request.Chat.ID, texts.Processing)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err := a.botClient.DeleteMessage(ctx, request.Chat.ID, messageID)
+		if err != nil {
+			logger.Errorf(ctx, "error on delete message: %s", err.Error())
+		}
+	}()
 
-	// exists, err := checkToken(user)
-	// if err != nil {
-	// 	return err
-	// }
-	// if !exists {
-	// 	return nil
-	// }
+	result := regexpAccountPosition.FindAllStringSubmatch(request.Caption, -1)
+	if len(result) == 0 || len(result[0]) == 0 {
+		return fmt.Errorf("can't parse account id in '%s'", request.Text)
+	}
+	accountID := result[0][1]
 
-	// message := tgbotapi.NewMessage(user.ChatID, texts.Processing)
-	// messageID, err := a.botClient.SendMessage(ctx, &message)
-	// if err != nil {
-	// 	return err
-	// }
+	account, err := a.tinvestService.GetAccountByID(ctx, user.Token, accountID)
+	if err != nil {
+		_, err = a.botClient.SendMessageWithText(ctx, request.Chat.ID, texts.GetDataError)
+		if err != nil {
+			return err
+		}
+		return err
+	}
 
-	// defer deleteMessage(user.ChatID, messageID)
+	if account == nil {
+		_, err = a.botClient.SendMessageWithText(ctx, request.Chat.ID, fmt.Sprintf(texts.AccountNotFound, accountID))
+		if err != nil {
+			return err
+		}
+		return nil
+	}
 
-	// tiClient, err := tinvest.NewClient(user.Token, repo)
-	// if err != nil {
-	// 	return errors.Errorf("error on get tiClient: %+v", err)
-	// }
+	if isCommand(request.Text) {
+		_, err = a.botClient.SendMessageWithText(ctx, request.Chat.ID, fmt.Sprintf(texts.AccountPositionHelp, account.Name))
+		if err != nil {
+			return err
+		}
 
-	// account, err := tiClient.GetAccount(accountId)
-	// if err != nil {
-	// 	return errors.Errorf("error on get account %s: %+v", accountId, err)
-	// }
+		return nil
+	}
 
-	// if account == nil {
+	instruments, err := a.tinvestService.GetInstrumentsByTicker(ctx, user.Token, request.Text)
+	if err != nil {
+		return fmt.Errorf("failed to get instrument for ticker %s: %+v", request.Text, err)
+	}
 
-	// 	message = tgbotapi.NewMessage(user.ChatID, fmt.Sprintf(texts.AccountNotFound, accountId))
+	if len(instruments) == 0 {
+		_, err = a.botClient.SendMessageWithText(ctx, request.Chat.ID, fmt.Sprintf(texts.InstrumentNotFound, request.Text))
+		if err != nil {
+			return err
+		}
 
-	// 	_, err = a.botClient.SendMessage(ctx, &message)
-	// 	if err != nil {
-	// 		return err
-	// 	}
+		return nil
+	}
 
-	// 	return nil
-	// }
+	for _, instrument := range instruments {
 
-	// if ticker == "" {
+		positions, err := a.tinvestService.GetPositions(ctx, user.Token, accountID, tinvest_service.From, time.Now(), []string{instrument.ID})
+		if err != nil {
+			return fmt.Errorf("failed to get position for ticker %s: %+v", instrument.Ticker, err)
+		}
+		if len(positions) == 0 {
+			continue
+		}
 
-	// 	message = tgbotapi.NewMessage(user.ChatID, fmt.Sprintf(texts.AccountPositionHelp, account.Name))
+		sb := strings.Builder{}
+		for _, position := range positions {
+			sb.WriteString(fmt.Sprintf(texts.AccountPositionDetailTitle, position.Ticker, account.Name, time.Now().Format("02.01.2006 15:04")))
+			sb.WriteString("\n")
 
-	// 	_, err = a.botClient.SendMessage(ctx, &message)
-	// 	if err != nil {
-	// 		return err
-	// 	}
+			sb.WriteString(fmt.Sprintf(texts.PositionCurrency, strings.ToUpper(position.Currency)))
+			sb.WriteString("\n")
 
-	// 	return nil
+			sb.WriteString("\n")
 
-	// }
+			sb.WriteString(fmt.Sprintf(texts.PositionQuantityBuy, position.QuantityBuy))
+			sb.WriteString("\n")
 
-	// instrument, err := tiClient.GetInstrumentByTicker(strings.ToUpper(ticker))
-	// if err != nil {
-	// 	return errors.Errorf("error on get instrument by ticker for %s: %+v", ticker, err)
-	// }
+			sb.WriteString(fmt.Sprintf(texts.PositionPriceBuy, a.accounting.FormatMoney(position.PriceBuy), a.accounting.FormatMoney(position.PriceBuyRub)))
+			sb.WriteString("\n")
 
-	// if instrument == nil {
+			sb.WriteString(fmt.Sprintf(texts.PositionValueBuy, a.accounting.FormatMoney(position.ValueBuy), a.accounting.FormatMoney(position.ValueBuyRub)))
+			sb.WriteString("\n")
 
-	// 	message = tgbotapi.NewMessage(user.ChatID, fmt.Sprintf(texts.InstrumentNotFound, ticker))
+			sb.WriteString(fmt.Sprintf(texts.PositionNKDBuy, a.accounting.FormatMoney(position.NKDBuy), a.accounting.FormatMoney(position.NKDBuyRub)))
+			sb.WriteString("\n")
 
-	// 	_, err = a.botClient.SendMessage(ctx, &message)
-	// 	if err != nil {
-	// 		return err
-	// 	}
+			sb.WriteString("\n")
 
-	// 	return nil
+			sb.WriteString(fmt.Sprintf(texts.PositionQuantitySell, position.QuantitySell))
+			sb.WriteString("\n")
 
-	// }
+			sb.WriteString(fmt.Sprintf(texts.PositionPriceSell, a.accounting.FormatMoney(position.PriceSell), a.accounting.FormatMoney(position.PriceSellRub)))
+			sb.WriteString("\n")
 
-	// tiClient.SetAccountId(account.Id)
+			sb.WriteString(fmt.Sprintf(texts.PositionValueSell, a.accounting.FormatMoney(position.ValueSell), a.accounting.FormatMoney(position.ValueSellRub)))
+			sb.WriteString("\n")
 
-	// positions, err := tiClient.GetPositions(time.Now(), instrument.Figi)
-	// if err != nil {
-	// 	return errors.Errorf("error on get position for %s/%s: %+v", accountId, instrument.Figi, err)
-	// }
+			sb.WriteString(fmt.Sprintf(texts.PositionNKDSell, a.accounting.FormatMoney(position.NKDSell), a.accounting.FormatMoney(position.NKDSellRub)))
+			sb.WriteString("\n")
 
-	// if len(positions) == 0 {
+			sb.WriteString("\n")
 
-	// 	message = tgbotapi.NewMessage(user.ChatID, fmt.Sprintf(texts.PositionNotFound, instrument.Ticker))
+			sb.WriteString(fmt.Sprintf(texts.PositionQuantityEnd, position.QuantityEnd))
+			sb.WriteString("\n")
 
-	// 	_, err = a.botClient.SendMessage(ctx, &message)
-	// 	if err != nil {
-	// 		return err
-	// 	}
+			sb.WriteString(fmt.Sprintf(texts.PositionPriceEnd, a.accounting.FormatMoney(position.PriceEnd), a.accounting.FormatMoney(position.PriceEndRub)))
+			sb.WriteString("\n")
 
-	// 	return nil
+			sb.WriteString(fmt.Sprintf(texts.PositionValueEnd, a.accounting.FormatMoney(position.ValueEnd), a.accounting.FormatMoney(position.ValueEndRub)))
+			sb.WriteString("\n")
 
-	// }
+			sb.WriteString(fmt.Sprintf(texts.PositionNKDEnd, a.accounting.FormatMoney(position.NKDEnd), a.accounting.FormatMoney(position.NKDEndRub)))
+			sb.WriteString("\n")
 
-	// sb := strings.Builder{}
+			sb.WriteString("\n")
 
-	// for _, position := range positions {
+			sb.WriteString(fmt.Sprintf(texts.PositionDividends, a.accounting.FormatMoney(position.Dividends), a.accounting.FormatMoney(position.DividendsRub)))
+			sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.AccountPositionDetailTitle, position.Ticker, account.Name, time.Now().Format("02.01.2006 15:04")))
-	// 	sb.WriteString("\n")
+			sb.WriteString(fmt.Sprintf(texts.PositionCoupons, a.accounting.FormatMoney(position.Coupons), a.accounting.FormatMoney(position.CouponsRub)))
+			sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionCurrency, strings.ToUpper(position.Currency)))
-	// 	sb.WriteString("\n")
+			sb.WriteString(fmt.Sprintf(texts.PositionOvernight, a.accounting.FormatMoney(position.Overnight), a.accounting.FormatMoney(position.OvernightRub)))
+			sb.WriteString("\n")
 
-	// 	sb.WriteString("\n")
+			sb.WriteString(fmt.Sprintf(texts.PositionTaxes, a.accounting.FormatMoney(position.Taxes), a.accounting.FormatMoney(position.TaxesRub)))
+			sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionQuantityBuy, position.QuantityBuy))
-	// 	sb.WriteString("\n")
+			sb.WriteString(fmt.Sprintf(texts.PositionCommissions, a.accounting.FormatMoney(position.Commissions), a.accounting.FormatMoney(position.CommissionsRub)))
+			sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionPriceBuy, a.accounting.FormatMoney(position.PriceBuy), a.accounting.FormatMoney(position.PriceBuyRub)))
-	// 	sb.WriteString("\n")
+			sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionValueBuy, a.accounting.FormatMoney(position.ValueBuy), a.accounting.FormatMoney(position.ValueBuyRub)))
-	// 	sb.WriteString("\n")
+			sb.WriteString(fmt.Sprintf(texts.PositionTotal, a.accounting.FormatMoney(position.Total), a.accounting.FormatMoney(position.TotalRub)))
+			sb.WriteString("\n")
 
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionNKDBuy, a.accounting.FormatMoney(position.NKDBuy), a.accounting.FormatMoney(position.NKDBuyRub)))
-	// 	sb.WriteString("\n")
+			sb.WriteString("\n")
+		}
 
-	// 	sb.WriteString("\n")
+		_, err = a.botClient.SendMessageWithText(ctx, request.Chat.ID, sb.String())
+		if err != nil {
+			return err
+		}
 
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionQuantitySell, position.QuantitySell))
-	// 	sb.WriteString("\n")
-
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionPriceSell, a.accounting.FormatMoney(position.PriceSell), a.accounting.FormatMoney(position.PriceSellRub)))
-	// 	sb.WriteString("\n")
-
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionValueSell, a.accounting.FormatMoney(position.ValueSell), a.accounting.FormatMoney(position.ValueSellRub)))
-	// 	sb.WriteString("\n")
-
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionNKDSell, a.accounting.FormatMoney(position.NKDSell), a.accounting.FormatMoney(position.NKDSellRub)))
-	// 	sb.WriteString("\n")
-
-	// 	sb.WriteString("\n")
-
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionQuantityEnd, position.QuantityEnd))
-	// 	sb.WriteString("\n")
-
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionPriceEnd, a.accounting.FormatMoney(position.PriceEnd), a.accounting.FormatMoney(position.PriceEndRub)))
-	// 	sb.WriteString("\n")
-
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionValueEnd, a.accounting.FormatMoney(position.ValueEnd), a.accounting.FormatMoney(position.ValueEndRub)))
-	// 	sb.WriteString("\n")
-
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionNKDEnd, a.accounting.FormatMoney(position.NKDEnd), a.accounting.FormatMoney(position.NKDEndRub)))
-	// 	sb.WriteString("\n")
-
-	// 	sb.WriteString("\n")
-
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionDividends, a.accounting.FormatMoney(position.Dividents), a.accounting.FormatMoney(position.DividentsRub)))
-	// 	sb.WriteString("\n")
-
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionCoupons, a.accounting.FormatMoney(position.Coupons), a.accounting.FormatMoney(position.CouponsRub)))
-	// 	sb.WriteString("\n")
-
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionOvernight, a.accounting.FormatMoney(position.Overnight), a.accounting.FormatMoney(position.OvernightRub)))
-	// 	sb.WriteString("\n")
-
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionTaxes, a.accounting.FormatMoney(position.Taxes), a.accounting.FormatMoney(position.TaxesRub)))
-	// 	sb.WriteString("\n")
-
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionCommissions, a.accounting.FormatMoney(position.Commissions), a.accounting.FormatMoney(position.CommissionsRub)))
-	// 	sb.WriteString("\n")
-
-	// 	sb.WriteString("\n")
-
-	// 	sb.WriteString(fmt.Sprintf(texts.PositionTotal, a.accounting.FormatMoney(position.Total), a.accounting.FormatMoney(position.TotalRub)))
-	// 	sb.WriteString("\n")
-
-	// 	sb.WriteString("\n")
-
-	// }
-
-	// message = tgbotapi.NewMessage(user.ChatID, sb.String())
-
-	// _, err = a.botClient.SendMessage(ctx, &message)
-	// if err != nil {
-	// 	return err
-	// }
+	}
 
 	return nil
 }

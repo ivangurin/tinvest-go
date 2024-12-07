@@ -24,6 +24,9 @@ type IService interface {
 	GetAccountByName(ctx context.Context, token string, name string) (*model.Account, error)
 	GetFavorites(ctx context.Context, token string) (model.Instruments, error)
 	GetPortfolio(ctx context.Context, token string, accountID string) (model.Portfolio, error)
+	GetPositions(ctx context.Context, token string, accountID string, from time.Time, to time.Time, instrumentIDs []string) (model.Positions, error)
+	GetTotals(ctx context.Context, token string, accountID string, from time.Time, to time.Time) (model.Totals, error)
+	GetInstrumentsByTicker(ctx context.Context, token string, ticker string) (model.Instruments, error)
 	GetInstruments(ctx context.Context, token string, accountID string, IDs []string) (model.Instruments, error)
 	GetOperations(ctx context.Context, token string, accountID string, from time.Time, to time.Time, instrumentIDs []string) (model.Operations, error)
 	GetCandles(ctx context.Context, token string, instrumentID string, interval contractv1.CandleInterval, from time.Time, to time.Time) (model.Candles, error)
@@ -38,7 +41,7 @@ type service struct {
 }
 
 var (
-	from = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	From = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 )
 
 func NewService(
@@ -130,7 +133,7 @@ func (s *service) GetPortfolio(ctx context.Context, token string, accountID stri
 	}
 
 	instrumentIDs := utils.ToSet(portfolio, func(portfolioPosition *tinvest_client.PortfolioPosition) string { return portfolioPosition.ID })
-	positions, err := s.GetPositions(ctx, token, accountID, from, time.Now().UTC(), instrumentIDs.ToSlice())
+	positions, err := s.GetPositions(ctx, token, accountID, From, time.Now().UTC(), instrumentIDs.ToSlice())
 	if err != nil {
 		return nil, err
 	}
@@ -178,6 +181,10 @@ func (s *service) GetPortfolio(ctx context.Context, token string, accountID stri
 	}
 
 	return res, nil
+}
+
+func (s *service) GetInstrumentsByTicker(ctx context.Context, token string, ticker string) (model.Instruments, error) {
+	return s.tinvestClient.GetInstrumentsByTicker(ctx, token, ticker)
 }
 
 func (s *service) GetInstruments(ctx context.Context, token string, accountID string, IDs []string) (model.Instruments, error) {

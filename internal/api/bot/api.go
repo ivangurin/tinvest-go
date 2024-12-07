@@ -31,15 +31,14 @@ type api struct {
 }
 
 const (
-	commandAccount               = "/account/%s"
-	commandAccountTotals         = "/account/%s/totals"
-	commandAccountPortfolio      = "/account/%s/portfolio"
-	commandAccountDetail         = "/account/%s/detail"
-	commandAccountPositions      = "/account/%s/positions"
-	commandAccountPosition       = "/account/%s/position"
-	commandAccountPositionDetail = "/account/%s/position/%s"
-	commandAccountTrades         = "/account/%s/trades"
-	commandAccountTradesFor      = "/account/%s/trades-for/%s"
+	commandAccount          = "/account/%s"
+	commandAccountTotals    = "/account/%s/totals"
+	commandAccountPortfolio = "/account/%s/portfolio"
+	commandAccountDetail    = "/account/%s/detail"
+	commandAccountPositions = "/account/%s/positions"
+	commandAccountPosition  = "/account/%s/position"
+	commandAccountTrades    = "/account/%s/trades"
+	commandAccountTradesFor = "/account/%s/trades-for/%s"
 
 	tradesForCurrDay   = "currDay"
 	tradesForPrevDay   = "prevDay"
@@ -50,19 +49,18 @@ const (
 )
 
 var (
-	regexpStart                 *regexp.Regexp = newRegexp(`^\/start$`)
-	regexpToken                 *regexp.Regexp = newRegexp(`^\/token$`)
-	regexpAccounts              *regexp.Regexp = newRegexp(`^\/accounts$`)
-	regexpAccount               *regexp.Regexp = newRegexp(`^\/account\/([0-9]+)$`)
-	regexpAccountTotals         *regexp.Regexp = newRegexp(`^\/account\/(.+)\/totals$`)
-	regexpAccountPortfolio      *regexp.Regexp = newRegexp(`^\/account\/(.+)\/portfolio$`)
-	regexpAccountDetail         *regexp.Regexp = newRegexp(`^\/account\/(.+)\/detail$`)
-	regexpAccountPositions      *regexp.Regexp = newRegexp(`^\/account\/(.+)\/positions$`)
-	regexpAccountPosition       *regexp.Regexp = newRegexp(`^\/account\/(.+)\/position$`)
-	regexpAccountPositionDetail *regexp.Regexp = newRegexp(`^\/account\/(.+)\/position\/(.+)$`)
-	regexpAccountTrades         *regexp.Regexp = newRegexp(`^\/account\/(.+)\/trades$`)
-	regexpAccountTradesFor      *regexp.Regexp = newRegexp(`^\/account\/(.+)\/trades-for\/(.+)$`)
-	regexpRsiDaily              *regexp.Regexp = newRegexp(`^\/rsi/daily$`)
+	regexpStart            *regexp.Regexp = newRegexp(`^\/start$`)
+	regexpToken            *regexp.Regexp = newRegexp(`^\/token$`)
+	regexpAccounts         *regexp.Regexp = newRegexp(`^\/accounts$`)
+	regexpAccount          *regexp.Regexp = newRegexp(`^\/account\/([0-9]+)$`)
+	regexpAccountTotals    *regexp.Regexp = newRegexp(`^\/account\/(.+)\/totals$`)
+	regexpAccountPortfolio *regexp.Regexp = newRegexp(`^\/account\/(.+)\/portfolio$`)
+	regexpAccountDetail    *regexp.Regexp = newRegexp(`^\/account\/(.+)\/detail$`)
+	regexpAccountPositions *regexp.Regexp = newRegexp(`^\/account\/(.+)\/positions$`)
+	regexpAccountPosition  *regexp.Regexp = newRegexp(`^\/account\/(.+)\/position$`)
+	regexpAccountTrades    *regexp.Regexp = newRegexp(`^\/account\/(.+)\/trades$`)
+	regexpAccountTradesFor *regexp.Regexp = newRegexp(`^\/account\/(.+)\/trades-for\/(.+)$`)
+	regexpRsiDaily         *regexp.Regexp = newRegexp(`^\/rsi/daily$`)
 )
 
 func NewAPI(
@@ -122,10 +120,6 @@ func NewAPI(
 			Handler: a.HandleAccountPosition,
 		},
 		{
-			Pattern: regexpAccountPositionDetail,
-			Handler: a.HandleAccountPosition,
-		},
-		{
 			Pattern: regexpAccountTrades,
 			Handler: a.HandleAccountTrades,
 		},
@@ -175,7 +169,7 @@ func (a *api) handleRequest(ctx context.Context, update *tgbotapi.Update) error 
 		defer func() {
 			err := a.botClient.SendCallback(ctx, update.CallbackQuery.ID)
 			if err != nil {
-				logger.Errorf(ctx, "api.handleRequest: %s", err.Error())
+				logger.Errorf(ctx, "failed to send callback on request: %s", err.Error())
 			}
 		}()
 	}
@@ -188,12 +182,12 @@ func (a *api) handleRequest(ctx context.Context, update *tgbotapi.Update) error 
 
 	_, err := a.historyService.CreateRecord(ctx, message.From.ID, message.Text)
 	if err != nil {
-		return fmt.Errorf("failed to create history record: %w", err)
+		logger.Errorf(ctx, "failed to create history record: %s", err.Error())
 	}
 
 	user, err := a.userService.GetUserByID(ctx, message.From.ID)
 	if err != nil {
-		return fmt.Errorf("failed to get user %d: %w", user.ID, err)
+		return fmt.Errorf("failed to get user %d: %w", message.From.ID, err)
 	}
 
 	var command string
@@ -204,11 +198,12 @@ func (a *api) handleRequest(ctx context.Context, update *tgbotapi.Update) error 
 		command = a.lastCommand[message.From.ID]
 	}
 
+	message.Caption = command
+
 	if !regexpStart.MatchString(command) &&
 		!regexpToken.MatchString(command) {
 		if user == nil || user.Token == "" {
-			message := tgbotapi.NewMessage(message.From.ID, texts.TokenIsEmpty)
-			_, err := a.botClient.SendMessage(ctx, &message)
+			_, err := a.botClient.SendMessageWithText(ctx, message.Chat.ID, texts.TokenIsEmpty)
 			if err != nil {
 				return err
 			}
@@ -220,7 +215,7 @@ func (a *api) handleRequest(ctx context.Context, update *tgbotapi.Update) error 
 		if handler.Pattern.MatchString(command) {
 			err = handler.Handler(ctx, user, message)
 			if err != nil {
-				return fmt.Errorf("failed to handle command %s from user %d: %w", command, message.From.ID, err)
+				return fmt.Errorf("failed to handle request %s from user %d: %w", command, message.From.ID, err)
 			}
 		}
 	}
