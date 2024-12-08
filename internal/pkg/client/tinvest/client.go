@@ -3,12 +3,14 @@ package tinvest_client
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
-	"sync"
 	"time"
 
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"tinvest-go/internal/model"
@@ -20,6 +22,9 @@ import (
 
 const (
 	batchSize = 1000
+
+	headerXRateLimitRemaining = "x-ratelimit-remaining"
+	headerXRateLimitReset     = "x-ratelimit-reset"
 )
 
 type IClient interface {
@@ -34,7 +39,8 @@ type IClient interface {
 	GetEtfs(ctx context.Context, token string) (model.Instruments, error)
 	GetFutures(ctx context.Context, token string) (model.Instruments, error)
 	GetLastPrices(ctx context.Context, token string, IDs []string) (model.LastPrices, error)
-	GetOperations(ctx context.Context, token string, accountID string, from time.Time, to time.Time, instrumentIDs []string) (model.Operations, error)
+	GetOperationsAll(ctx context.Context, token string, accountID string, from time.Time, to time.Time) (model.Operations, error)
+	GetOperationsByInstrumentID(ctx context.Context, token string, accountID string, from time.Time, to time.Time, instrumentIDs []string) (model.Operations, error)
 	GetCandles(ctx context.Context, token string, instrumentID string, interval contractv1.CandleInterval, from time.Time, to time.Time) (model.Candles, error)
 }
 
@@ -97,62 +103,61 @@ func (c *Client) GetPortfolio(ctx context.Context, token string, accountID strin
 
 func (c *Client) GetInstrumentsByIDs(ctx context.Context, token string, IDs []string) (model.Instruments, error) {
 	instruments := make(model.Instruments, len(IDs))
-	errGr, errCtx := errgroup.WithContext(ctx)
-	mu := sync.Mutex{}
+	var header metadata.MD
 	for _, id := range IDs {
-		errGr.Go(func() error {
+		if id == "" {
+			continue
+		}
 
-			req := &contractv1.InstrumentRequest{
-				IdType: contractv1.InstrumentIdType_INSTRUMENT_ID_TYPE_UID,
-				Id:     id,
+		wait(header)
+		req := &contractv1.InstrumentRequest{
+			IdType: contractv1.InstrumentIdType_INSTRUMENT_ID_TYPE_UID,
+			Id:     id,
+		}
+		resp, err := c.InstrumentsAPI.GetInstrumentBy(ctx, req, grpc_utils.NewAuth(token), grpc.Header(&header))
+		if err != nil {
+			if status, ok := status.FromError(err); ok {
+				switch status.Code() {
+				case codes.NotFound:
+					logger.Errorf(ctx, "failed to request instrument by id %s - not found: %s", id, err.Error())
+					continue
+				case codes.InvalidArgument:
+					logger.Errorf(ctx, "failed to request instrument by id %s - invalid argument: %s", id, err.Error())
+					continue
+				}
 			}
-			resp, err := c.InstrumentsAPI.GetInstrumentBy(errCtx, req, grpc_utils.NewAuth(token))
+			return nil, fmt.Errorf("failed to request instrument by id %s: %w", id, err)
+		}
+
+		var currResp *contractv1.CurrencyResponse
+		var bondResp *contractv1.BondResponse
+		var futureResp *contractv1.FutureResponse
+		if resp.GetInstrument().GetInstrumentKind() == contractv1.InstrumentType_INSTRUMENT_TYPE_CURRENCY {
+			currResp, err = c.InstrumentsAPI.CurrencyBy(ctx, req, grpc_utils.NewAuth(token))
 			if err != nil {
-				logger.Errorf(ctx, "failed to request instrument by id %s: %s", id, err.Error())
-				return nil
-				// return fmt.Errorf("failed to request instrument by id %s: %w", id, err)
+				return nil, fmt.Errorf("failed to request currency by id %s: %w", id, err)
 			}
-
-			var currResp *contractv1.CurrencyResponse
-			var bondResp *contractv1.BondResponse
-			var futureResp *contractv1.FutureResponse
-			if resp.GetInstrument().GetInstrumentKind() == contractv1.InstrumentType_INSTRUMENT_TYPE_CURRENCY {
-				currResp, err = c.InstrumentsAPI.CurrencyBy(errCtx, req, grpc_utils.NewAuth(token))
-				if err != nil {
-					return fmt.Errorf("failed to request currency by id %s: %w", id, err)
-				}
-			} else if resp.GetInstrument().GetInstrumentKind() == contractv1.InstrumentType_INSTRUMENT_TYPE_BOND {
-				bondResp, err = c.InstrumentsAPI.BondBy(errCtx, req, grpc_utils.NewAuth(token))
-				if err != nil {
-					return fmt.Errorf("failed to request bond by id %s: %w", id, err)
-				}
-			} else if resp.GetInstrument().GetInstrumentKind() == contractv1.InstrumentType_INSTRUMENT_TYPE_FUTURES {
-				futureResp, err = c.InstrumentsAPI.FutureBy(errCtx, req, grpc_utils.NewAuth(token))
-				if err != nil {
-					return fmt.Errorf("failed to request future by id %s: %w", id, err)
-				}
+		} else if resp.GetInstrument().GetInstrumentKind() == contractv1.InstrumentType_INSTRUMENT_TYPE_BOND {
+			bondResp, err = c.InstrumentsAPI.BondBy(ctx, req, grpc_utils.NewAuth(token))
+			if err != nil {
+				return nil, fmt.Errorf("failed to request bond by id %s: %w", id, err)
 			}
-
-			mu.Lock()
-			defer mu.Unlock()
-
-			if resp.GetInstrument().GetInstrumentKind() == contractv1.InstrumentType_INSTRUMENT_TYPE_CURRENCY {
-				instruments[id] = convertCurrency(currResp.GetInstrument())
-			} else if resp.GetInstrument().GetInstrumentKind() == contractv1.InstrumentType_INSTRUMENT_TYPE_BOND {
-				instruments[id] = convertBond(bondResp.GetInstrument())
-			} else if resp.GetInstrument().GetInstrumentKind() == contractv1.InstrumentType_INSTRUMENT_TYPE_FUTURES {
-				instruments[id] = convertFuture(futureResp.GetInstrument())
-			} else {
-				instruments[id] = convertInstrument(resp.GetInstrument())
+		} else if resp.GetInstrument().GetInstrumentKind() == contractv1.InstrumentType_INSTRUMENT_TYPE_FUTURES {
+			futureResp, err = c.InstrumentsAPI.FutureBy(ctx, req, grpc_utils.NewAuth(token))
+			if err != nil {
+				return nil, fmt.Errorf("failed to request future by id %s: %w", id, err)
 			}
+		}
 
-			return nil
-		})
-	}
-
-	err := errGr.Wait()
-	if err != nil {
-		return nil, err
+		if resp.GetInstrument().GetInstrumentKind() == contractv1.InstrumentType_INSTRUMENT_TYPE_CURRENCY {
+			instruments[id] = convertCurrency(currResp.GetInstrument())
+		} else if resp.GetInstrument().GetInstrumentKind() == contractv1.InstrumentType_INSTRUMENT_TYPE_BOND {
+			instruments[id] = convertBond(bondResp.GetInstrument())
+		} else if resp.GetInstrument().GetInstrumentKind() == contractv1.InstrumentType_INSTRUMENT_TYPE_FUTURES {
+			instruments[id] = convertFuture(futureResp.GetInstrument())
+		} else {
+			instruments[id] = convertInstrument(resp.GetInstrument())
+		}
 	}
 
 	return instruments, nil
@@ -257,7 +262,53 @@ func (c *Client) GetLastPrices(ctx context.Context, token string, IDs []string) 
 	return convertLastPrices(resp.GetLastPrices()), nil
 }
 
-func (c *Client) GetOperations(
+func (c *Client) GetOperationsAll(
+	ctx context.Context,
+	token string,
+	accountID string,
+	from time.Time,
+	to time.Time,
+) (model.Operations, error) {
+	req := &contractv1.GetOperationsByCursorRequest{
+		AccountId:          accountID,
+		Limit:              utils.Ptr(int32(batchSize)),
+		State:              contractv1.OperationState_OPERATION_STATE_EXECUTED.Enum(),
+		WithoutCommissions: utils.Ptr(true),
+		WithoutTrades:      utils.Ptr(true),
+		WithoutOvernights:  utils.Ptr(false),
+		From:               timestamppb.New(from),
+		To:                 timestamppb.New(to),
+	}
+
+	res := make(model.Operations, 0, 1000)
+	for {
+		var header metadata.MD
+		resp, err := c.OperationsAPI.GetOperationsByCursor(ctx, req, grpc_utils.NewAuth(token), grpc.Header(&header))
+		if err != nil {
+			logger.Errorf(ctx, "failed to request operations: %s", err.Error())
+			break
+			// return nil, fmt.Errorf("failed to request operations for instrument %s: %w", instrumentID, err)
+		}
+
+		for _, item := range resp.GetItems() {
+			res = append(res, convertOperation(item))
+		}
+
+		if !resp.GetHasNext() {
+			break
+		}
+
+		req.Cursor = utils.Ptr(resp.GetNextCursor())
+
+		fmt.Println(header)
+		wait(header)
+
+	}
+
+	return res, nil
+}
+
+func (c *Client) GetOperationsByInstrumentID(
 	ctx context.Context,
 	token string,
 	accountID string,
@@ -265,52 +316,40 @@ func (c *Client) GetOperations(
 	to time.Time,
 	instrumentIDs []string,
 ) (model.Operations, error) {
-	errGr, errCtx := errgroup.WithContext(ctx)
-	mu := sync.Mutex{}
-
-	res := model.Operations{}
+	res := make(model.Operations, 0, 100)
 	for _, instrumentID := range instrumentIDs {
-		errGr.Go(func() error {
-			req := &contractv1.GetOperationsByCursorRequest{
-				AccountId:          accountID,
-				InstrumentId:       utils.Ptr(instrumentID),
-				Limit:              utils.Ptr(int32(batchSize)),
-				State:              contractv1.OperationState_OPERATION_STATE_EXECUTED.Enum(),
-				WithoutCommissions: utils.Ptr(true),
-				WithoutOvernights:  utils.Ptr(false),
-				WithoutTrades:      utils.Ptr(true),
-				From:               timestamppb.New(from),
-				To:                 timestamppb.New(to),
+		req := &contractv1.GetOperationsByCursorRequest{
+			AccountId:          accountID,
+			InstrumentId:       utils.Ptr(instrumentID),
+			Limit:              utils.Ptr(int32(batchSize)),
+			State:              contractv1.OperationState_OPERATION_STATE_EXECUTED.Enum(),
+			WithoutCommissions: utils.Ptr(true),
+			WithoutTrades:      utils.Ptr(true),
+			WithoutOvernights:  utils.Ptr(false),
+			From:               timestamppb.New(from),
+			To:                 timestamppb.New(to),
+		}
+
+		for {
+			var header metadata.MD
+			resp, err := c.OperationsAPI.GetOperationsByCursor(ctx, req, grpc_utils.NewAuth(token), grpc.Header(&header))
+			if err != nil {
+				logger.Errorf(ctx, "failed to request operations for instrument %s: %s", instrumentID, err.Error())
+				break
+				// return fmt.Errorf("failed to request operations for instrument %s: %w", instrumentID, err)
 			}
 
-			operations := model.Operations{}
-			for {
-				resp, err := c.OperationsAPI.GetOperationsByCursor(errCtx, req, grpc_utils.NewAuth(token))
-				if err != nil {
-					logger.Errorf(ctx, "failed to request operations for instrument %s: %s", instrumentID, err.Error())
-					return nil
-					// return fmt.Errorf("failed to request operations for instrument %s: %w", instrumentID, err)
-				}
-
-				operations = append(operations, convertOperations(resp.GetItems())...)
-
-				if !resp.GetHasNext() {
-					break
-				}
-				req.Cursor = utils.Ptr(resp.GetNextCursor())
+			for _, item := range resp.GetItems() {
+				res = append(res, convertOperation(item))
 			}
 
-			mu.Lock()
-			defer mu.Unlock()
-			res = append(res, operations...)
+			if !resp.GetHasNext() {
+				break
+			}
+			req.Cursor = utils.Ptr(resp.GetNextCursor())
 
-			return nil
-		})
-	}
-
-	err := errGr.Wait()
-	if err != nil {
-		return nil, err
+			wait(header)
+		}
 	}
 
 	return res, nil
@@ -342,4 +381,30 @@ func (c *Client) GetCandles(ctx context.Context, token string, instrumentID stri
 	}
 
 	return candles, nil
+}
+
+func wait(header metadata.MD) {
+	remaining := getRateLimitRemaining(header)
+	if remaining == 0 {
+		reset := getRateLimitReset(header)
+		time.Sleep(time.Duration(reset+1) * time.Second)
+	}
+}
+
+func getRateLimitRemaining(header metadata.MD) int {
+	if rateLimit, ok := header[headerXRateLimitRemaining]; ok {
+		if limit, err := strconv.Atoi(rateLimit[0]); err == nil {
+			return limit
+		}
+	}
+	return 1
+}
+
+func getRateLimitReset(header metadata.MD) int {
+	if rateLimitReset, ok := header[headerXRateLimitReset]; ok {
+		if reset, err := strconv.Atoi(rateLimitReset[0]); err == nil {
+			return reset
+		}
+	}
+	return 0
 }

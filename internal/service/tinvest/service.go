@@ -195,7 +195,7 @@ func (s *service) GetInstruments(ctx context.Context, token string, accountID st
 		var err error
 		instruments, err = s.tinvestClient.GetInstrumentsByIDs(egCtx, token, IDs)
 		if err != nil {
-			return fmt.Errorf("failed on get instruments: %w", err)
+			return fmt.Errorf("failed to get instruments: %w", err)
 		}
 		return nil
 	})
@@ -365,7 +365,7 @@ func (s *service) GetLastPrices(ctx context.Context, token string, accountID str
 }
 
 func (s *service) GetOperations(ctx context.Context, token string, accountID string, from time.Time, to time.Time, instrumentIDs []string) (model.Operations, error) {
-	operations, err := s.tinvestClient.GetOperations(ctx, token, accountID, from, to, instrumentIDs)
+	operations, err := s.tinvestClient.GetOperationsByInstrumentID(ctx, token, accountID, from, to, instrumentIDs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get operations: %w", err)
 	}
@@ -474,14 +474,21 @@ func (s *service) GetOperations(ctx context.Context, token string, accountID str
 
 //nolint:funlen
 func (s *service) GetPositions(ctx context.Context, token string, accountID string, from time.Time, to time.Time, instrumentIDs []string) (model.Positions, error) {
-	instruments, err := s.GetInstruments(ctx, token, accountID, instrumentIDs)
+	var operations model.Operations
+	var err error
+	if len(instrumentIDs) == 0 {
+		operations, err = s.tinvestClient.GetOperationsAll(ctx, token, accountID, from, to)
+	} else {
+		operations, err = s.tinvestClient.GetOperationsByInstrumentID(ctx, token, accountID, from, to, instrumentIDs)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to get instruments for account %s: %w", accountID, err)
+		return nil, fmt.Errorf("failed to get operations for account %s: %w", accountID, err)
 	}
 
-	operations, err := s.GetOperations(ctx, token, accountID, from, to, instrumentIDs)
+	instrumentSet := utils.ToSet(operations, func(operation *model.Operation) string { return operation.InstrumentID })
+	instruments, err := s.GetInstruments(ctx, token, accountID, instrumentSet.ToSlice())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get instruments for account %s: %w", accountID, err)
 	}
 
 	positionsMap := map[string]*model.Position{}

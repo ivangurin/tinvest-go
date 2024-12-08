@@ -212,20 +212,15 @@ func convertPortfolioPosition(portfolioPosition *contractv1.PortfolioPosition) *
 	}
 }
 
-func convertOperations(operations []*contractv1.OperationItem) model.Operations {
-	res := make(model.Operations, 0, len(operations))
-	for _, operation := range operations {
-		res = append(res, convertOperation(operation))
-	}
-	return res
-}
-
 func convertOperation(operation *contractv1.OperationItem) *model.Operation {
 	return &model.Operation{
 		ID:           operation.GetId(),
-		Type:         operation.GetType().String(),
 		Time:         operation.GetDate().AsTime(),
+		Name:         operation.GetName(),
+		Type:         operation.GetType().String(),
 		InstrumentID: operation.GetInstrumentUid(),
+		PositionID:   operation.GetPositionUid(),
+		Figi:         operation.GetFigi(),
 		Quantity:     float64(operation.GetQuantityDone()),
 		Price:        math.Abs(utils.MoneyToFloat64(operation.Price)),
 		Value:        math.Abs(utils.MoneyToFloat64(operation.Payment)),

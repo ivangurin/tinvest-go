@@ -6,9 +6,12 @@ import (
 
 type Operation struct {
 	ID            string
-	InstrumentID  string
 	Time          time.Time
+	Name          string
 	Type          string
+	InstrumentID  string
+	PositionID    string
+	Figi          string
 	Quantity      float64
 	Price         float64
 	PriceRub      float64
