@@ -52,29 +52,41 @@ PHONY: .bin-goose
 	$(info $(shell printf "\033[34;1m▶\033[0m") Installing goose binary...)
 	GOBIN=$(LOCAL_BIN) go install github.com/pressly/goose/v3/cmd/goose@latest
 
+PHONY: migrate
 migrate: .bin-goose
 	$(LOCAL_BIN)/goose -dir $(GOOSE_MIGRATION_DIR) $(GOOSE_DRIVER) $(GOOSE_DSN) up
 
+PHONY: rollback
 rollback: .bin-goose
 	$(LOCAL_BIN)/goose -dir $(GOOSE_MIGRATION_DIR) $(GOOSE_DRIVER) $(GOOSE_DSN) down
 
+PHONY: migrate-validate
 migrate-validate: .bin-goose
 	$(LOCAL_BIN)/goose -dir $(GOOSE_MIGRATION_DIR) $(GOOSE_DRIVER) $(GOOSE_DSN) validate
 
+PHONY: migrate-status
 migrate-status: .bin-goose
 	$(LOCAL_BIN)/goose -dir $(GOOSE_MIGRATION_DIR) $(GOOSE_DRIVER) $(GOOSE_DSN) status
 
+PHONY: prepare-test
 prepare-test: .bin-goose
 	mkdir -p ./database
 	rm -f ./database/database_test.sqlite
 	$(LOCAL_BIN)/goose -dir $(GOOSE_MIGRATION_DIR) $(GOOSE_DRIVER) $(GOOSE_DSN_TEST) up
 
+PHONY: prepare-test
 test: prepare-test
 	go test -v -count=1 -race ./...
 
+PHONY: run
+run:
+	go run ./cmd/bot
+
+PHONY: start
 start:
 	docker compose up -d
 
+PHONY: stop
 stop:
 	docker compose down
 	docker image rm tinvest-bot
