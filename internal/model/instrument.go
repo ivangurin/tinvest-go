@@ -1,5 +1,14 @@
 package model
 
+const (
+	InstrumentTypeCurrency = "currency"
+	InstrumentTypeShare    = "share"
+	InstrumentTypeBond     = "bond"
+	InstrumentTypeEtf      = "etf"
+	InstrumentTypeFuture   = "future"
+	InstrumentTypeOption   = "option"
+)
+
 type Instrument struct {
 	ID                      string
 	Type                    string

@@ -31,6 +31,25 @@ func convertAccount(account *contractv1.Account) *model.Account {
 	}
 }
 
+func convertInstrumentType(instrumentType contractv1.InstrumentType) string {
+	var res string
+	switch instrumentType {
+	case contractv1.InstrumentType_INSTRUMENT_TYPE_CURRENCY:
+		res = model.InstrumentTypeCurrency
+	case contractv1.InstrumentType_INSTRUMENT_TYPE_SHARE:
+		res = model.InstrumentTypeShare
+	case contractv1.InstrumentType_INSTRUMENT_TYPE_BOND:
+		res = model.InstrumentTypeBond
+	case contractv1.InstrumentType_INSTRUMENT_TYPE_ETF:
+		res = model.InstrumentTypeEtf
+	case contractv1.InstrumentType_INSTRUMENT_TYPE_FUTURES:
+		res = model.InstrumentTypeFuture
+	default:
+		res = instrumentType.String()
+	}
+	return res
+}
+
 func convertInstrument(instrument *contractv1.Instrument) *model.Instrument {
 	return &model.Instrument{
 		ID:       instrument.GetUid(),
@@ -38,7 +57,7 @@ func convertInstrument(instrument *contractv1.Instrument) *model.Instrument {
 		Figi:     instrument.GetFigi(),
 		Isin:     instrument.GetIsin(),
 		Name:     instrument.GetName(),
-		Type:     instrument.GetInstrumentKind().String(),
+		Type:     convertInstrumentType(instrument.GetInstrumentKind()),
 		Currency: strings.ToUpper(instrument.GetCurrency()),
 		Lot:      instrument.GetLot(),
 		Country:  instrument.GetCountryOfRisk(),
@@ -75,7 +94,7 @@ func convertCurrency(currency *contractv1.Currency) *model.Instrument {
 		Figi:     currency.GetFigi(),
 		Isin:     currency.GetIsin(),
 		Name:     currency.GetName(),
-		Type:     contractv1.InstrumentType_INSTRUMENT_TYPE_CURRENCY.String(),
+		Type:     model.InstrumentTypeCurrency,
 		Currency: strings.ToUpper(currency.GetCurrency()),
 		Lot:      currency.GetLot(),
 		Country:  currency.GetCountryOfRisk(),
@@ -99,7 +118,7 @@ func convertShare(share *contractv1.Share) *model.Instrument {
 		Figi:     share.GetFigi(),
 		Isin:     share.GetIsin(),
 		Name:     share.GetName(),
-		Type:     contractv1.InstrumentType_INSTRUMENT_TYPE_SHARE.String(),
+		Type:     model.InstrumentTypeShare,
 		Currency: strings.ToUpper(share.GetCurrency()),
 		Lot:      share.GetLot(),
 		Country:  share.GetCountryOfRisk(),
@@ -122,7 +141,7 @@ func convertBond(bond *contractv1.Bond) *model.Instrument {
 		Figi:     bond.GetFigi(),
 		Isin:     bond.GetIsin(),
 		Name:     bond.GetName(),
-		Type:     contractv1.InstrumentType_INSTRUMENT_TYPE_BOND.String(),
+		Type:     model.InstrumentTypeBond,
 		Currency: strings.ToUpper(bond.GetCurrency()),
 		Lot:      bond.GetLot(),
 		Country:  bond.GetCountryOfRisk(),
@@ -147,7 +166,7 @@ func convertEtf(etf *contractv1.Etf) *model.Instrument {
 		Figi:     etf.GetFigi(),
 		Isin:     etf.GetIsin(),
 		Name:     etf.GetName(),
-		Type:     contractv1.InstrumentType_INSTRUMENT_TYPE_ETF.String(),
+		Type:     model.InstrumentTypeEtf,
 		Currency: strings.ToUpper(etf.GetCurrency()),
 		Lot:      etf.GetLot(),
 		Country:  etf.GetCountryOfRisk(),
@@ -169,7 +188,7 @@ func convertFuture(future *contractv1.Future) *model.Instrument {
 		Ticker:                  future.GetTicker(),
 		Figi:                    future.GetFigi(),
 		Name:                    future.GetName(),
-		Type:                    contractv1.InstrumentType_INSTRUMENT_TYPE_FUTURES.String(),
+		Type:                    model.InstrumentTypeFuture,
 		Currency:                strings.ToUpper(future.GetCurrency()),
 		Lot:                     future.GetLot(),
 		Country:                 future.GetCountryOfRisk(),

@@ -28,7 +28,7 @@ type IService interface {
 	GetTotals(ctx context.Context, token string, accountID string, from time.Time, to time.Time) (model.Totals, error)
 	GetInstrumentsByTicker(ctx context.Context, token string, ticker string) (model.Instruments, error)
 	GetInstruments(ctx context.Context, token string, accountID string, IDs []string) (model.Instruments, error)
-	GetOperations(ctx context.Context, token string, accountID string, from time.Time, to time.Time, instrumentIDs []string) (model.Operations, error)
+	GetOperations(ctx context.Context, token string, accountID string, from time.Time, to time.Time, instrumentIDs []string) (model.Instruments, model.Operations, error)
 	GetCandles(ctx context.Context, token string, instrumentID string, interval contractv1.CandleInterval, from time.Time, to time.Time) (model.Candles, error)
 	GetTrades(ctx context.Context, token string, accountID string, from time.Time, to time.Time) (model.Trades, error)
 }
@@ -140,9 +140,14 @@ func (s *service) GetPortfolio(ctx context.Context, token string, accountID stri
 
 	res := make(model.Portfolio, 0, len(positions))
 	for _, position := range positions {
+		if position.QuantityEnd == 0 {
+			continue
+		}
+
 		portfolioPosition :=
 			&model.PortfolioPosition{
 				InstrumentID: position.InstrumentID,
+				Name:         position.Name,
 				Ticker:       position.Ticker,
 				Currency:     position.Currency,
 				Quantity:     position.QuantityEnd,
@@ -189,7 +194,6 @@ func (s *service) GetInstrumentsByTicker(ctx context.Context, token string, tick
 
 func (s *service) GetInstruments(ctx context.Context, token string, accountID string, IDs []string) (model.Instruments, error) {
 	eg, egCtx := errgroup.WithContext(ctx)
-
 	var instruments model.Instruments
 	eg.Go(func() error {
 		var err error
@@ -212,21 +216,22 @@ func (s *service) GetInstruments(ctx context.Context, token string, accountID st
 		return nil, err
 	}
 
+	// Calculate LastPrice
 	for _, instrument := range instruments {
 		lastPrice, exists := lastPrices[instrument.ID]
 		if exists {
-			if instrument.Type == contractv1.InstrumentType_INSTRUMENT_TYPE_CURRENCY.String() {
+			if instrument.Type == model.InstrumentTypeCurrency {
 				if instrument.Ticker == model.TickerRUB {
 					instrument.LastPrice = 1
 				} else {
-					if lastPrice.Absolute {
+					if lastPrice.AbsoluteValue {
 						instrument.LastPrice = lastPrice.Value
 					} else {
 						instrument.LastPrice = lastPrice.Value * float64(instrument.Lot) / instrument.Nominal
 					}
 				}
-			} else if instrument.Type == contractv1.InstrumentType_INSTRUMENT_TYPE_BOND.String() {
-				if lastPrice.Absolute {
+			} else if instrument.Type == model.InstrumentTypeBond {
+				if lastPrice.AbsoluteValue {
 					instrument.LastPrice = lastPrice.Value
 				} else {
 					instrument.LastPrice = lastPrice.Value / 100 * instrument.Nominal
@@ -245,8 +250,8 @@ func (s *service) GetInstruments(ctx context.Context, token string, accountID st
 						return nil, err
 					}
 				}
-			} else if instrument.Type == contractv1.InstrumentType_INSTRUMENT_TYPE_FUTURES.String() {
-				if lastPrice.Absolute {
+			} else if instrument.Type == model.InstrumentTypeFuture {
+				if lastPrice.AbsoluteValue {
 					instrument.LastPrice = lastPrice.Value
 				} else {
 					instrument.LastPrice = instrument.LastPrice /
@@ -357,28 +362,37 @@ func (s *service) GetLastPrices(ctx context.Context, token string, accountID str
 			}
 
 			lastPrice.Value = portfolioPosition.CurrentPrice
-			lastPrice.Absolute = true
+			lastPrice.AbsoluteValue = true
 		}
 	}
 
 	return lastPrices, nil
 }
 
-func (s *service) GetOperations(ctx context.Context, token string, accountID string, from time.Time, to time.Time, instrumentIDs []string) (model.Operations, error) {
-	operations, err := s.tinvestClient.GetOperationsByInstrumentID(ctx, token, accountID, from, to, instrumentIDs)
+func (s *service) GetOperations(ctx context.Context, token string, accountID string, from time.Time, to time.Time, instrumentIDs []string) (model.Instruments, model.Operations, error) {
+	var operations model.Operations
+	var err error
+	if len(instrumentIDs) == 0 {
+		operations, err = s.tinvestClient.GetOperationsAll(ctx, token, accountID, from, to)
+	} else {
+		operations, err = s.tinvestClient.GetOperationsByInstrumentID(ctx, token, accountID, from, to, instrumentIDs)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to get operations: %w", err)
+		return nil, nil, fmt.Errorf("failed to get operations for account %s: %w", accountID, err)
+	}
+
+	instrumentSet := utils.ToSet(operations, func(operation *model.Operation) string { return operation.InstrumentID })
+	instruments, err := s.GetInstruments(ctx, token, accountID, instrumentSet.ToSlice())
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get instruments for account %s: %w", accountID, err)
 	}
 
 	for _, operation := range operations {
 
-		// var instrument *model.Instrument
-		// var exists bool
-		// if operation.Figi != "" {
-		// 	instrument, exists = instruments[operation.Figi]
-		// 	if !exists {
-		// 		continue
-		// 	}
+		instrument, exists := instruments[operation.InstrumentID]
+		if !exists {
+			continue
+		}
 
 		// 	if instrument.FigiOrig != "" {
 		// 		instrument, exists = instruments[instrument.FigiOrig]
@@ -393,12 +407,6 @@ func (s *service) GetOperations(ctx context.Context, token string, accountID str
 		// 			continue
 		// 		}
 		// 	}
-		// }
-
-		// // Если инструмент найден
-		// if instrument != nil {
-		// 	operation.Figi = instrument.Figi
-		// 	operation.Isin = instrument.Isin
 		// }
 
 		// Если валюта RUR
@@ -409,55 +417,53 @@ func (s *service) GetOperations(ctx context.Context, token string, accountID str
 		// Конвертация цены в рубли
 		operation.PriceRub, err = s.exchangeService.Convert(ctx, operation.Currency, model.CurrencyRUB, operation.Price, operation.Time)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		// Конвертация стоимости в рубли
 		operation.ValueRub, err = s.exchangeService.Convert(ctx, operation.Currency, model.CurrencyRUB, operation.Value, operation.Time)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		// Конвертация НКД в рубли
 		operation.NKDRub, err = s.exchangeService.Convert(ctx, operation.Currency, model.CurrencyRUB, operation.NKD, operation.Time)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		// Конвертация комиссии в рубли
 		operation.CommissionRub, err = s.exchangeService.Convert(ctx, operation.Currency, model.CurrencyRUB, operation.Commission, operation.Time)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		// Если валюта операции отличается от валюты инструмента, то
 		// сделаем конвертацию суммы операции в валюту инструмента
-		// if instrument != nil &&
-		// 	instrument.Currency != operation.Currency {
+		if instrument.Currency != operation.Currency {
 
-		// 	operation.Price, err = s.exchangeService.Convert(ctx, operation.Currency, instrument.Currency, operation.Price, operation.Time)
-		// 	if err != nil {
-		// 		return nil, err
-		// 	}
+			operation.Price, err = s.exchangeService.Convert(ctx, operation.Currency, instrument.Currency, operation.Price, operation.Time)
+			if err != nil {
+				return nil, nil, err
+			}
 
-		// 	operation.Value, err = s.exchangeService.Convert(ctx, operation.Currency, instrument.Currency, operation.Value, operation.Time)
-		// 	if err != nil {
-		// 		return nil, err
-		// 	}
+			operation.Value, err = s.exchangeService.Convert(ctx, operation.Currency, instrument.Currency, operation.Value, operation.Time)
+			if err != nil {
+				return nil, nil, err
+			}
 
-		// 	operation.NKD, err = s.exchangeService.Convert(ctx, operation.Currency, instrument.Currency, operation.NKD, operation.Time)
-		// 	if err != nil {
-		// 		return nil, err
-		// 	}
+			operation.NKD, err = s.exchangeService.Convert(ctx, operation.Currency, instrument.Currency, operation.NKD, operation.Time)
+			if err != nil {
+				return nil, nil, err
+			}
 
-		// 	operation.Commission, err = s.exchangeService.Convert(ctx, operation.Currency, instrument.Currency, operation.Commission, operation.Time)
-		// 	if err != nil {
-		// 		return nil, err
-		// 	}
+			operation.Commission, err = s.exchangeService.Convert(ctx, operation.Currency, instrument.Currency, operation.Commission, operation.Time)
+			if err != nil {
+				return nil, nil, err
+			}
 
-		// 	operation.Currency = instrument.Currency
-
-		// }
+			operation.Currency = instrument.Currency
+		}
 
 		// Payment содержит НКД. Скорректируем payment на сумму НКД
 		operation.Value -= operation.NKD
@@ -469,26 +475,14 @@ func (s *service) GetOperations(ctx context.Context, token string, accountID str
 		return operations[i].Time.Before(operations[j].Time)
 	})
 
-	return operations, nil
+	return instruments, operations, nil
 }
 
 //nolint:funlen
 func (s *service) GetPositions(ctx context.Context, token string, accountID string, from time.Time, to time.Time, instrumentIDs []string) (model.Positions, error) {
-	var operations model.Operations
-	var err error
-	if len(instrumentIDs) == 0 {
-		operations, err = s.tinvestClient.GetOperationsAll(ctx, token, accountID, from, to)
-	} else {
-		operations, err = s.tinvestClient.GetOperationsByInstrumentID(ctx, token, accountID, from, to, instrumentIDs)
-	}
+	instruments, operations, err := s.GetOperations(ctx, token, accountID, from, to, instrumentIDs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get operations for account %s: %w", accountID, err)
-	}
-
-	instrumentSet := utils.ToSet(operations, func(operation *model.Operation) string { return operation.InstrumentID })
-	instruments, err := s.GetInstruments(ctx, token, accountID, instrumentSet.ToSlice())
-	if err != nil {
-		return nil, fmt.Errorf("failed to get instruments for account %s: %w", accountID, err)
+		return nil, err
 	}
 
 	positionsMap := map[string]*model.Position{}
@@ -504,7 +498,7 @@ func (s *service) GetPositions(ctx context.Context, token string, accountID stri
 			continue
 		}
 
-		if instrument.Type == contractv1.InstrumentType_INSTRUMENT_TYPE_CURRENCY.String() {
+		if instrument.Type == model.InstrumentTypeCurrency {
 			continue
 		}
 

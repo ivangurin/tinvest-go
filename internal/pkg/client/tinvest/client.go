@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -33,6 +34,7 @@ type IClient interface {
 	GetPortfolio(ctx context.Context, token string, accountID string) (PortfolioPositions, error)
 	GetInstrumentsByIDs(ctx context.Context, token string, IDs []string) (model.Instruments, error)
 	GetInstrumentsByTicker(ctx context.Context, token string, ticker string) (model.Instruments, error)
+	GetInstruments(ctx context.Context, token string) (model.Instruments, error)
 	GetCurrencies(ctx context.Context, token string) (model.Instruments, error)
 	GetShares(ctx context.Context, token string) (model.Instruments, error)
 	GetBonds(ctx context.Context, token string) (model.Instruments, error)
@@ -102,6 +104,22 @@ func (c *Client) GetPortfolio(ctx context.Context, token string, accountID strin
 }
 
 func (c *Client) GetInstrumentsByIDs(ctx context.Context, token string, IDs []string) (model.Instruments, error) {
+	instruments, err := c.GetInstruments(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+
+	res := make(model.Instruments, len(IDs))
+	for _, id := range IDs {
+		if instrument, exists := instruments[id]; exists {
+			res[id] = instrument
+		}
+	}
+
+	return res, nil
+}
+
+func (c *Client) GetInstrumentsByIDsSlow(ctx context.Context, token string, IDs []string) (model.Instruments, error) {
 	instruments := make(model.Instruments, len(IDs))
 	var header metadata.MD
 	for _, id := range IDs {
@@ -137,23 +155,18 @@ func (c *Client) GetInstrumentsByIDs(ctx context.Context, token string, IDs []st
 			if err != nil {
 				return nil, fmt.Errorf("failed to request currency by id %s: %w", id, err)
 			}
+			instruments[id] = convertCurrency(currResp.GetInstrument())
 		} else if resp.GetInstrument().GetInstrumentKind() == contractv1.InstrumentType_INSTRUMENT_TYPE_BOND {
 			bondResp, err = c.InstrumentsAPI.BondBy(ctx, req, grpc_utils.NewAuth(token))
 			if err != nil {
 				return nil, fmt.Errorf("failed to request bond by id %s: %w", id, err)
 			}
+			instruments[id] = convertBond(bondResp.GetInstrument())
 		} else if resp.GetInstrument().GetInstrumentKind() == contractv1.InstrumentType_INSTRUMENT_TYPE_FUTURES {
 			futureResp, err = c.InstrumentsAPI.FutureBy(ctx, req, grpc_utils.NewAuth(token))
 			if err != nil {
 				return nil, fmt.Errorf("failed to request future by id %s: %w", id, err)
 			}
-		}
-
-		if resp.GetInstrument().GetInstrumentKind() == contractv1.InstrumentType_INSTRUMENT_TYPE_CURRENCY {
-			instruments[id] = convertCurrency(currResp.GetInstrument())
-		} else if resp.GetInstrument().GetInstrumentKind() == contractv1.InstrumentType_INSTRUMENT_TYPE_BOND {
-			instruments[id] = convertBond(bondResp.GetInstrument())
-		} else if resp.GetInstrument().GetInstrumentKind() == contractv1.InstrumentType_INSTRUMENT_TYPE_FUTURES {
 			instruments[id] = convertFuture(futureResp.GetInstrument())
 		} else {
 			instruments[id] = convertInstrument(resp.GetInstrument())
@@ -181,6 +194,79 @@ func (c *Client) GetInstrumentsByTicker(ctx context.Context, token string, ticke
 	}
 
 	return c.GetInstrumentsByIDs(ctx, token, instrumentsIDs)
+}
+
+func (c *Client) GetInstruments(ctx context.Context, token string) (model.Instruments, error) {
+	var currencies model.Instruments
+	var shares model.Instruments
+	var bonds model.Instruments
+	var etfs model.Instruments
+	var futures model.Instruments
+	eg, egCtx := errgroup.WithContext(ctx)
+	eg.Go(func() error {
+		var err error
+		currencies, err = c.GetCurrencies(egCtx, token)
+		if err != nil {
+			return fmt.Errorf("failed to get currencies: %w", err)
+		}
+		return nil
+	})
+	eg.Go(func() error {
+		var err error
+		shares, err = c.GetShares(ctx, token)
+		if err != nil {
+			return fmt.Errorf("failed to get shares: %w", err)
+		}
+		return nil
+	})
+	eg.Go(func() error {
+		var err error
+		bonds, err = c.GetBonds(ctx, token)
+		if err != nil {
+			return fmt.Errorf("failed to get bonds: %w", err)
+		}
+		return nil
+	})
+	eg.Go(func() error {
+		var err error
+		etfs, err = c.GetEtfs(ctx, token)
+		if err != nil {
+			return fmt.Errorf("failed to get etfs: %w", err)
+		}
+		return nil
+	})
+	eg.Go(func() error {
+		var err error
+		futures, err = c.GetFutures(ctx, token)
+		if err != nil {
+			return fmt.Errorf("failed to get futures: %w", err)
+		}
+		return nil
+	})
+
+	err := eg.Wait()
+	if err != nil {
+		return nil, err
+	}
+
+	res := make(model.Instruments, len(currencies)+len(shares)+len(bonds)+len(etfs)+len(futures))
+	for _, currency := range currencies {
+		res[currency.ID] = currency
+	}
+	for _, share := range shares {
+		res[share.ID] = share
+	}
+	for _, bond := range bonds {
+		res[bond.ID] = bond
+	}
+	for _, etf := range etfs {
+		res[etf.ID] = etf
+	}
+	for _, future := range futures {
+		res[future.ID] = future
+	}
+
+	return res, nil
 }
 
 func (c *Client) GetCurrencies(ctx context.Context, token string) (model.Instruments, error) {
@@ -300,9 +386,7 @@ func (c *Client) GetOperationsAll(
 
 		req.Cursor = utils.Ptr(resp.GetNextCursor())
 
-		fmt.Println(header)
 		wait(header)
-
 	}
 
 	return res, nil
@@ -384,6 +468,7 @@ func (c *Client) GetCandles(ctx context.Context, token string, instrumentID stri
 }
 
 func wait(header metadata.MD) {
+	logger.Infof(context.Background(), "try to wait: %+v", header)
 	remaining := getRateLimitRemaining(header)
 	if remaining == 0 {
 		reset := getRateLimitReset(header)

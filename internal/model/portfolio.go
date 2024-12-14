@@ -2,6 +2,7 @@ package model
 
 type PortfolioPosition struct {
 	InstrumentID string
+	Name         string
 	Ticker       string
 	Quantity     float64
 	Currency     string
