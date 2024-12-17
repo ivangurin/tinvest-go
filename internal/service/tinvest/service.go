@@ -4,7 +4,9 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -14,7 +16,6 @@ import (
 	tinvest_client "tinvest-go/internal/pkg/client/tinvest"
 	"tinvest-go/internal/pkg/logger"
 	"tinvest-go/internal/pkg/trades"
-	"tinvest-go/internal/pkg/utils"
 	exchange_service "tinvest-go/internal/service/exchange"
 )
 
@@ -23,12 +24,12 @@ type IService interface {
 	GetAccountByID(ctx context.Context, token string, accountID string) (*model.Account, error)
 	GetAccountByName(ctx context.Context, token string, name string) (*model.Account, error)
 	GetFavorites(ctx context.Context, token string) (model.Instruments, error)
+	GetInstruments(ctx context.Context, token string, accountID string, IDs []string) (model.Instruments, error)
+	GetInstrumentsByTicker(ctx context.Context, token string, ticker string) (model.Instruments, error)
 	GetPortfolio(ctx context.Context, token string, accountID string) (model.Portfolio, error)
 	GetPositions(ctx context.Context, token string, accountID string, from time.Time, to time.Time, instrumentIDs []string) (model.Positions, error)
-	GetTotals(ctx context.Context, token string, accountID string, from time.Time, to time.Time) (model.Totals, error)
-	GetInstrumentsByTicker(ctx context.Context, token string, ticker string) (model.Instruments, error)
-	GetInstruments(ctx context.Context, token string, accountID string, IDs []string) (model.Instruments, error)
 	GetOperations(ctx context.Context, token string, accountID string, from time.Time, to time.Time, instrumentIDs []string) (model.Instruments, model.Operations, error)
+	GetTotals(ctx context.Context, token string, accountID string, from time.Time, to time.Time) (model.Totals, error)
 	GetCandles(ctx context.Context, token string, instrumentID string, interval contractv1.CandleInterval, from time.Time, to time.Time) (model.Candles, error)
 	GetTrades(ctx context.Context, token string, accountID string, from time.Time, to time.Time) (model.Trades, error)
 }
@@ -54,14 +55,14 @@ func NewService(
 		DrConvTime:      time.Date(2022, 8, 31, 0, 0, 0, 0, time.Local),
 		DrList: DrList{
 			&DrItem{
-				InstrumentID:       model.TickerMBT,
-				SourceInstrumentID: model.TickerMTSS,
-				Koeff:              2,
+				InstrumentTicker:       model.TickerMBT,
+				SourceInstrumentTicker: model.TickerMTSS,
+				Koeff:                  2,
 			},
 			&DrItem{
-				InstrumentID:       model.TickerPHORGS,
-				SourceInstrumentID: model.TickerPHOR,
-				Koeff:              1.0 / 3.0,
+				InstrumentTicker:       model.TickerPHORGS,
+				SourceInstrumentTicker: model.TickerPHOR,
+				Koeff:                  1.0 / 3.0,
 			},
 		},
 	}
@@ -126,68 +127,6 @@ func (s *service) GetFavorites(ctx context.Context, token string) (model.Instrum
 	return res, nil
 }
 
-func (s *service) GetPortfolio(ctx context.Context, token string, accountID string) (model.Portfolio, error) {
-	portfolio, err := s.tinvestClient.GetPortfolio(ctx, token, accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	instrumentIDs := utils.ToSet(portfolio, func(portfolioPosition *tinvest_client.PortfolioPosition) string { return portfolioPosition.ID })
-	positions, err := s.GetPositions(ctx, token, accountID, From, time.Now().UTC(), instrumentIDs.ToSlice())
-	if err != nil {
-		return nil, err
-	}
-
-	res := make(model.Portfolio, 0, len(positions))
-	for _, position := range positions {
-		if position.QuantityEnd == 0 {
-			continue
-		}
-
-		portfolioPosition :=
-			&model.PortfolioPosition{
-				InstrumentID: position.InstrumentID,
-				Name:         position.Name,
-				Ticker:       position.Ticker,
-				Currency:     position.Currency,
-				Quantity:     position.QuantityEnd,
-				PriceEnd:     position.PriceEnd,
-				PriceEndRub:  position.PriceEndRub,
-				ValueEnd:     position.ValueEnd,
-				ValueEndRub:  position.ValueEndRub,
-			}
-
-		trades := position.Trades.GetUnclosed()
-		for _, trade := range trades {
-			if trade.QuantitySell == 0 {
-				portfolioPosition.Value += trade.ValueBuy
-				portfolioPosition.ValueRub += trade.ValueBuyRub
-			} else {
-				portfolioPosition.Value -= trade.ValueSell
-				portfolioPosition.ValueRub -= trade.ValueSellRub
-			}
-		}
-
-		portfolioPosition.Price = portfolioPosition.Value / portfolioPosition.Quantity
-		portfolioPosition.PriceRub = portfolioPosition.ValueRub / portfolioPosition.Quantity
-
-		portfolioPosition.Total = portfolioPosition.ValueEnd - portfolioPosition.Value
-		portfolioPosition.TotalRub = portfolioPosition.ValueEndRub - portfolioPosition.ValueRub
-
-		if portfolioPosition.Total != 0 {
-			portfolioPosition.Percent = portfolioPosition.Total / portfolioPosition.Value * 100
-		}
-
-		if portfolioPosition.TotalRub != 0 {
-			portfolioPosition.PercentRub = portfolioPosition.TotalRub / portfolioPosition.ValueRub * 100
-		}
-
-		res = append(res, portfolioPosition)
-	}
-
-	return res, nil
-}
-
 func (s *service) GetInstrumentsByTicker(ctx context.Context, token string, ticker string) (model.Instruments, error) {
 	return s.tinvestClient.GetInstrumentsByTicker(ctx, token, ticker)
 }
@@ -197,7 +136,7 @@ func (s *service) GetInstruments(ctx context.Context, token string, accountID st
 	var instruments model.Instruments
 	eg.Go(func() error {
 		var err error
-		instruments, err = s.tinvestClient.GetInstrumentsByIDs(egCtx, token, IDs)
+		instruments, err = s.tinvestClient.GetInstruments(egCtx, token)
 		if err != nil {
 			return fmt.Errorf("failed to get instruments: %w", err)
 		}
@@ -270,72 +209,67 @@ func (s *service) GetInstruments(ctx context.Context, token string, accountID st
 		}
 	}
 
-	// // Заполнение Figi оргинального инструмента
-	// for _, instrument := range instruments {
-
-	// 	// Вариант 1, когда тикер равен фиги и равен исин, то надейм
-	// 	// инструмент с тем же исин, но другим фиги
-	// 	if instrument.Isin == instrument.Figi {
-	// 		for _, origInstrument := range instruments {
-	// 			if instrument.Isin == origInstrument.Isin &&
-	// 				instrument.Figi != origInstrument.Figi {
-	// 				instrument.FigiOrig = origInstrument.Figi
-	// 				break
-	// 			}
-	// 		}
-	// 	}
-
-	// 	// Варинат 2, когда тикер заначнивается на -RM, то ищем оригинальрый тикер
-	// 	// по значению до -RM
-	// 	if len(instrument.Ticker) > 3 &&
-	// 		instrument.Ticker[len(instrument.Ticker)-3:] == "-RM" {
-	// 		origTicker := instrument.Ticker[:len(instrument.Ticker)-3]
-	// 		for _, origInstrument := range instruments {
-	// 			if origInstrument.Isin == instrument.Isin &&
-	// 				origInstrument.Ticker == origTicker {
-	// 				instrument.FigiOrig = origInstrument.Figi
-	// 				break
-	// 			}
-	// 		}
-	// 	}
-
-	// 	// Вариант 3, когда фиги начинается с TCS10, то попробуем найти
-	// 	// такой же инструмент, но с фиги начинающейся TCS00
-	// 	if len(instrument.Figi) >= 5 &&
-	// 		instrument.Figi[:5] == "TCS10" {
-	// 		origFigi := "TCS00" + instrument.Figi[5:]
-	// 		origInstrument, exists := instruments[origFigi]
-	// 		if exists {
-	// 			instrument.FigiOrig = origInstrument.Figi
-	// 		}
-	// 	}
-
-	// 	// Вариант 4, когда фиги начинается на TCSS0, то попробуем найти
-	// 	// такой же инструмент, но с фиги начинающейся TCS00
-	// 	if len(instrument.Figi) >= 5 &&
-	// 		instrument.Figi[:5] == "TCSS0" {
-	// 		origFigi := "TCS00" + instrument.Figi[5:]
-	// 		origInstrument, exists := instruments[origFigi]
-	// 		if exists {
-	// 			instrument.FigiOrig = origInstrument.Figi
-	// 		}
-	// 	}
-
-	// 	// Вариант 5. Если фиги равен ISSUANCEPLUS, то найдем инструмент
-	// 	// по тому же ISIN и фиги начиающемся с TCS00
-	// 	if instrument.Figi == "ISSUANCEPLUS" {
-	// 		for _, origInstrument := range instruments {
-	// 			if origInstrument.Isin == instrument.Isin &&
-	// 				origInstrument.Figi[:5] == "TCS00" {
-	// 				instrument.FigiOrig = origInstrument.Figi
-	// 				break
-	// 			}
-	// 		}
-	// 	}
-
-	// }
-
 	return instruments, nil
+}
+
+func (s *service) GetPortfolio(ctx context.Context, token string, accountID string) (model.Portfolio, error) {
+	positions, err := s.GetPositions(ctx, token, accountID, From, time.Now().UTC(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	res := make(model.Portfolio, 0, len(positions))
+	for _, position := range positions {
+		if position.QuantityEnd == 0 {
+			continue
+		}
+
+		portfolioPosition :=
+			&model.PortfolioPosition{
+				InstrumentID: position.InstrumentID,
+				Name:         position.Name,
+				Ticker:       position.Ticker,
+				Currency:     position.Currency,
+				Quantity:     position.QuantityEnd,
+				PriceEnd:     position.PriceEnd,
+				PriceEndRub:  position.PriceEndRub,
+				ValueEnd:     position.ValueEnd,
+				ValueEndRub:  position.ValueEndRub,
+			}
+
+		trades := position.Trades.GetUnclosed()
+		for _, trade := range trades {
+			if trade.QuantitySell == 0 {
+				portfolioPosition.Value += trade.ValueBuy
+				portfolioPosition.ValueRub += trade.ValueBuyRub
+			} else {
+				portfolioPosition.Value -= trade.ValueSell
+				portfolioPosition.ValueRub -= trade.ValueSellRub
+			}
+		}
+
+		portfolioPosition.Price = portfolioPosition.Value / portfolioPosition.Quantity
+		portfolioPosition.PriceRub = portfolioPosition.ValueRub / portfolioPosition.Quantity
+
+		portfolioPosition.Total = portfolioPosition.ValueEnd - portfolioPosition.Value
+		portfolioPosition.TotalRub = portfolioPosition.ValueEndRub - portfolioPosition.ValueRub
+
+		if portfolioPosition.Total != 0 {
+			portfolioPosition.Percent = portfolioPosition.Total / portfolioPosition.Value * 100
+		}
+
+		if portfolioPosition.TotalRub != 0 {
+			portfolioPosition.PercentRub = portfolioPosition.TotalRub / portfolioPosition.ValueRub * 100
+		}
+
+		res = append(res, portfolioPosition)
+	}
+
+	slices.SortFunc(res, func(a, b *model.PortfolioPosition) int {
+		return strings.Compare(a.Ticker, b.Ticker)
+	})
+
+	return res, nil
 }
 
 func (s *service) GetLastPrices(ctx context.Context, token string, accountID string, instrumentIDs []string) (model.LastPrices, error) {
@@ -370,19 +304,12 @@ func (s *service) GetLastPrices(ctx context.Context, token string, accountID str
 }
 
 func (s *service) GetOperations(ctx context.Context, token string, accountID string, from time.Time, to time.Time, instrumentIDs []string) (model.Instruments, model.Operations, error) {
-	var operations model.Operations
-	var err error
-	if len(instrumentIDs) == 0 {
-		operations, err = s.tinvestClient.GetOperationsAll(ctx, token, accountID, from, to)
-	} else {
-		operations, err = s.tinvestClient.GetOperationsByInstrumentID(ctx, token, accountID, from, to, instrumentIDs)
-	}
+	operations, err := s.tinvestClient.GetOperations(ctx, token, accountID, from, to)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get operations for account %s: %w", accountID, err)
 	}
 
-	instrumentSet := utils.ToSet(operations, func(operation *model.Operation) string { return operation.InstrumentID })
-	instruments, err := s.GetInstruments(ctx, token, accountID, instrumentSet.ToSlice())
+	instruments, err := s.GetInstruments(ctx, token, accountID, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get instruments for account %s: %w", accountID, err)
 	}
@@ -394,20 +321,13 @@ func (s *service) GetOperations(ctx context.Context, token string, accountID str
 			continue
 		}
 
-		// 	if instrument.FigiOrig != "" {
-		// 		instrument, exists = instruments[instrument.FigiOrig]
-		// 		if !exists {
-		// 			continue
-		// 		}
-		// 	}
-
-		// 	if instrument.FigiOrig != "" {
-		// 		instrument, exists = instruments[instrument.FigiOrig]
-		// 		if !exists {
-		// 			continue
-		// 		}
-		// 	}
-		// }
+		if instrument.OriginalID != "" {
+			instrument, exists = instruments[instrument.OriginalID]
+			if !exists {
+				continue
+			}
+			operation.InstrumentID = instrument.ID
+		}
 
 		// Если валюта RUR
 		if operation.Currency == model.CurrencyRUR {
@@ -502,7 +422,7 @@ func (s *service) GetPositions(ctx context.Context, token string, accountID stri
 			continue
 		}
 
-		position, exists := positionsMap[instrument.ID]
+		position, exists := positionsMap[instrument.Ticker]
 		if !exists {
 			position =
 				&model.Position{
@@ -516,12 +436,11 @@ func (s *service) GetPositions(ctx context.Context, token string, accountID stri
 					Trades:       trades.NewTrades(),
 				}
 
-			positionsMap[instrument.ID] = position
+			positionsMap[instrument.Ticker] = position
 		}
 
 		switch operation.Type {
 		case contractv1.OperationType_OPERATION_TYPE_BUY.String():
-
 			position.QuantityBuy += operation.Quantity
 			position.ValueBuy += operation.Value
 			position.ValueBuyRub += operation.ValueRub
@@ -533,7 +452,6 @@ func (s *service) GetPositions(ctx context.Context, token string, accountID stri
 			position.Trades.AddPurchase(operation.Time, operation.Quantity, operation.Value, operation.ValueRub)
 
 		case contractv1.OperationType_OPERATION_TYPE_BUY_CARD.String():
-
 			position.QuantityBuy += operation.Quantity
 			position.ValueBuy += operation.Value
 			position.ValueBuyRub += operation.ValueRub
@@ -545,7 +463,6 @@ func (s *service) GetPositions(ctx context.Context, token string, accountID stri
 			position.Trades.AddPurchase(operation.Time, operation.Quantity, operation.Value, operation.ValueRub)
 
 		case contractv1.OperationType_OPERATION_TYPE_SELL.String():
-
 			position.QuantitySell += operation.Quantity
 			position.ValueSell += operation.Value
 			position.ValueSellRub += operation.ValueRub
@@ -593,6 +510,9 @@ func (s *service) GetPositions(ctx context.Context, token string, accountID stri
 			position.QuantityBuy += operation.Quantity
 
 		case contractv1.OperationType_OPERATION_TYPE_OUT_STAMP_DUTY.String():
+			continue
+
+		case contractv1.OperationType_OPERATION_TYPE_INP_MULTI.String():
 			continue
 
 		default:
@@ -655,7 +575,8 @@ func (s *service) GetPositions(ctx context.Context, token string, accountID stri
 			contractv1.OperationType_OPERATION_TYPE_DIVIDEND_TAX.String(),
 			contractv1.OperationType_OPERATION_TYPE_BUY.String(),
 			contractv1.OperationType_OPERATION_TYPE_SELL.String(),
-			contractv1.OperationType_OPERATION_TYPE_OUT_STAMP_DUTY.String():
+			contractv1.OperationType_OPERATION_TYPE_OUT_STAMP_DUTY.String(),
+			contractv1.OperationType_OPERATION_TYPE_INP_MULTI.String():
 			continue
 
 		default:
@@ -664,38 +585,38 @@ func (s *service) GetPositions(ctx context.Context, token string, accountID stri
 
 	}
 
-	// // Конвертация ДР
-	// for _, dr := range s.DrList {
-	// 	positionDr, exists := positionsMap[dr.InstrumentID]
-	// 	if !exists {
-	// 		continue
-	// 	}
+	// Конвертация ДР
+	for _, dr := range s.DrList {
+		positionDr, exists := positionsMap[dr.InstrumentTicker]
+		if !exists {
+			continue
+		}
 
-	// 	if positionDr.QuantityEnd > 0 {
-	// 		positionDr.QuantitySell += positionDr.QuantityEnd
-	// 		positionDr.ValueSell += positionDr.QuantityEnd * positionDr.PriceBuy
-	// 		positionDr.ValueSellRub += positionDr.QuantityEnd * positionDr.PriceBuyRub
-	// 	}
+		if positionDr.QuantityEnd > 0 {
+			positionDr.QuantitySell += positionDr.QuantityEnd
+			positionDr.ValueSell += positionDr.QuantityEnd * positionDr.PriceBuy
+			positionDr.ValueSellRub += positionDr.QuantityEnd * positionDr.PriceBuyRub
+		}
 
-	// 	position, exists := positionsMap[dr.SourceInstrumentID]
-	// 	if exists {
-	// 		quantity := positionDr.QuantityEnd * dr.Koeff
-	// 		value := positionDr.QuantityEnd * positionDr.PriceBuy
+		position, exists := positionsMap[dr.SourceInstrumentTicker]
+		if exists {
+			quantity := positionDr.QuantityEnd * dr.Koeff
+			value := positionDr.QuantityEnd * positionDr.PriceBuy
 
-	// 		value, err = s.exchangeService.Convert(ctx, model.CurrencyUSD, model.CurrencyRUB, value, s.DrConvTime)
-	// 		if err != nil {
-	// 			return nil, err
-	// 		}
+			value, err = s.exchangeService.Convert(ctx, model.CurrencyUSD, model.CurrencyRUB, value, s.DrConvTime)
+			if err != nil {
+				return nil, err
+			}
 
-	// 		position.QuantityBuy += quantity
-	// 		position.ValueBuy += value
-	// 		position.ValueBuyRub += value
+			position.QuantityBuy += quantity
+			position.ValueBuy += value
+			position.ValueBuyRub += value
 
-	// 		s.calcPositionTotal(position, nil)
-	// 	}
+			s.calcPositionTotal(position, nil)
+		}
 
-	// 	s.calcPositionTotal(positionDr, nil)
-	// }
+		s.calcPositionTotal(positionDr, nil)
+	}
 
 	// Подготовка результата
 	positions := make(model.Positions, 0, len(positionsMap))
@@ -704,8 +625,8 @@ func (s *service) GetPositions(ctx context.Context, token string, accountID stri
 	}
 
 	// Сортировка позиций по тикеру
-	sort.Slice(positions, func(i, j int) bool {
-		return cmp.Compare(positions[i].Ticker, positions[j].Ticker) < 0
+	slices.SortFunc(positions, func(a, b *model.Position) int {
+		return strings.Compare(a.Ticker, b.Ticker)
 	})
 
 	return positions, nil

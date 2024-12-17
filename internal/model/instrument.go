@@ -11,12 +11,12 @@ const (
 
 type Instrument struct {
 	ID                      string
-	Type                    string
-	Ticker                  string
-	Name                    string
-	Figi                    string
-	FigiOrig                string
+	OriginalID              string
 	Isin                    string
+	Figi                    string
+	Ticker                  string
+	Type                    string
+	Name                    string
 	Currency                string
 	Lot                     int32
 	Country                 string

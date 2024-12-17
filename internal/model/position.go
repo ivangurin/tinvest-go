@@ -4,9 +4,9 @@ import "tinvest-go/internal/pkg/trades"
 
 type Position struct {
 	InstrumentID   string
-	Ticker         string
-	Figi           string
 	Isin           string
+	Figi           string
+	Ticker         string
 	Type           string
 	Name           string
 	Currency       string

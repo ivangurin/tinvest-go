@@ -16,6 +16,7 @@ import (
 
 	"tinvest-go/internal/model"
 	contractv1 "tinvest-go/internal/pb"
+	"tinvest-go/internal/pkg/cache"
 	grpc_utils "tinvest-go/internal/pkg/grpc"
 	"tinvest-go/internal/pkg/logger"
 	"tinvest-go/internal/pkg/utils"
@@ -31,17 +32,17 @@ const (
 type IClient interface {
 	GetAccounts(ctx context.Context, token string) (model.Accounts, error)
 	GetFavorites(ctx context.Context, token string) (model.Favorites, error)
-	GetPortfolio(ctx context.Context, token string, accountID string) (PortfolioPositions, error)
+	GetInstruments(ctx context.Context, token string) (model.Instruments, error)
 	GetInstrumentsByIDs(ctx context.Context, token string, IDs []string) (model.Instruments, error)
 	GetInstrumentsByTicker(ctx context.Context, token string, ticker string) (model.Instruments, error)
-	GetInstruments(ctx context.Context, token string) (model.Instruments, error)
 	GetCurrencies(ctx context.Context, token string) (model.Instruments, error)
 	GetShares(ctx context.Context, token string) (model.Instruments, error)
 	GetBonds(ctx context.Context, token string) (model.Instruments, error)
 	GetEtfs(ctx context.Context, token string) (model.Instruments, error)
 	GetFutures(ctx context.Context, token string) (model.Instruments, error)
 	GetLastPrices(ctx context.Context, token string, IDs []string) (model.LastPrices, error)
-	GetOperationsAll(ctx context.Context, token string, accountID string, from time.Time, to time.Time) (model.Operations, error)
+	GetPortfolio(ctx context.Context, token string, accountID string) (PortfolioPositions, error)
+	GetOperations(ctx context.Context, token string, accountID string, from time.Time, to time.Time) (model.Operations, error)
 	GetOperationsByInstrumentID(ctx context.Context, token string, accountID string, from time.Time, to time.Time, instrumentIDs []string) (model.Operations, error)
 	GetCandles(ctx context.Context, token string, instrumentID string, interval contractv1.CandleInterval, from time.Time, to time.Time) (model.Candles, error)
 }
@@ -88,19 +89,6 @@ func (c *Client) GetFavorites(ctx context.Context, token string) (model.Favorite
 	}
 
 	return convertFavorites(resp.GetFavoriteInstruments()), nil
-}
-
-func (c *Client) GetPortfolio(ctx context.Context, token string, accountID string) (PortfolioPositions, error) {
-	req := &contractv1.PortfolioRequest{
-		AccountId: accountID,
-	}
-
-	resp, err := c.OperationsAPI.GetPortfolio(ctx, req, grpc_utils.NewAuth(token))
-	if err != nil {
-		return nil, fmt.Errorf("failed to request portfolio: %w", err)
-	}
-
-	return convertPortfolioPositions(resp.GetPositions()), nil
 }
 
 func (c *Client) GetInstrumentsByIDs(ctx context.Context, token string, IDs []string) (model.Instruments, error) {
@@ -197,6 +185,11 @@ func (c *Client) GetInstrumentsByTicker(ctx context.Context, token string, ticke
 }
 
 func (c *Client) GetInstruments(ctx context.Context, token string) (model.Instruments, error) {
+	instrumentsIf, exists := cache.Get("tinvestClient.GetInstruments")
+	if exists {
+		return instrumentsIf.(model.Instruments), nil
+	}
+
 	var currencies model.Instruments
 	var shares model.Instruments
 	var bonds model.Instruments
@@ -249,24 +242,71 @@ func (c *Client) GetInstruments(ctx context.Context, token string) (model.Instru
 		return nil, err
 	}
 
-	res := make(model.Instruments, len(currencies)+len(shares)+len(bonds)+len(etfs)+len(futures))
+	instruments := make(model.Instruments, len(currencies)+len(shares)+len(bonds)+len(etfs)+len(futures))
 	for _, currency := range currencies {
-		res[currency.ID] = currency
+		instruments[currency.ID] = currency
 	}
 	for _, share := range shares {
-		res[share.ID] = share
+		instruments[share.ID] = share
 	}
 	for _, bond := range bonds {
-		res[bond.ID] = bond
+		instruments[bond.ID] = bond
 	}
 	for _, etf := range etfs {
-		res[etf.ID] = etf
+		instruments[etf.ID] = etf
 	}
 	for _, future := range futures {
-		res[future.ID] = future
+		instruments[future.ID] = future
 	}
 
-	return res, nil
+	// Когда фиги начинается не с TCS00, то попробуем найти инструмент с таким же ISIN,
+	// но с фиги начинающейся TCS00
+	for _, instrument := range instruments {
+		if !strings.HasPrefix(instrument.Figi, "TCS00") {
+			for _, origInstrument := range instruments {
+				if origInstrument.Isin == instrument.Isin && strings.HasPrefix(origInstrument.Figi, "TCS00") {
+					instrument.OriginalID = origInstrument.ID
+					break
+				}
+			}
+		}
+	}
+
+	// Когда тикер заканчивается на -RM, то ищем оригинальный тикер
+	for _, instrument := range instruments {
+		if instrument.OriginalID != "" {
+			continue
+		}
+		if strings.HasSuffix(instrument.Ticker, "-RM") {
+			for _, origInstrument := range instruments {
+				if instrument.Isin == origInstrument.Isin &&
+					instrument.Ticker != origInstrument.Ticker &&
+					origInstrument.Ticker != origInstrument.Isin {
+					instrument.OriginalID = origInstrument.ID
+					break
+				}
+			}
+		}
+	}
+
+	// Когда исин равен тикеру, то ищем оригинальный тикер
+	for _, instrument := range instruments {
+		if instrument.OriginalID != "" {
+			continue
+		}
+		if instrument.Isin == instrument.Ticker {
+			for _, origInstrument := range instruments {
+				if instrument.Isin == origInstrument.Isin &&
+					origInstrument.Isin != origInstrument.Ticker &&
+					!strings.HasSuffix(origInstrument.Ticker, "-RM") {
+					instrument.OriginalID = origInstrument.ID
+					break
+				}
+			}
+		}
+	}
+
+	return instruments, nil
 }
 
 func (c *Client) GetCurrencies(ctx context.Context, token string) (model.Instruments, error) {
@@ -348,7 +388,20 @@ func (c *Client) GetLastPrices(ctx context.Context, token string, IDs []string) 
 	return convertLastPrices(resp.GetLastPrices()), nil
 }
 
-func (c *Client) GetOperationsAll(
+func (c *Client) GetPortfolio(ctx context.Context, token string, accountID string) (PortfolioPositions, error) {
+	req := &contractv1.PortfolioRequest{
+		AccountId: accountID,
+	}
+
+	resp, err := c.OperationsAPI.GetPortfolio(ctx, req, grpc_utils.NewAuth(token))
+	if err != nil {
+		return nil, fmt.Errorf("failed to request portfolio: %w", err)
+	}
+
+	return convertPortfolioPositions(resp.GetPositions()), nil
+}
+
+func (c *Client) GetOperations(
 	ctx context.Context,
 	token string,
 	accountID string,
