@@ -2,6 +2,7 @@ package model
 
 import (
 	"time"
+	"tinvest-go/internal/pkg/utils"
 )
 
 type Operation struct {
@@ -25,3 +26,10 @@ type Operation struct {
 }
 
 type Operations []*Operation
+
+func (o *Operations) GetInstrumentsIDs() []string {
+	set := utils.ToSet(*o, func(operation *Operation) string {
+		return operation.InstrumentID
+	})
+	return set.ToSlice()
+}

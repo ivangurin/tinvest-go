@@ -31,3 +31,11 @@ type Instrument struct {
 }
 
 type Instruments map[string]*Instrument
+
+func (i *Instruments) GetIDs() []string {
+	res := make([]string, 0, len(*i))
+	for id := range *i {
+		res = append(res, id)
+	}
+	return res
+}

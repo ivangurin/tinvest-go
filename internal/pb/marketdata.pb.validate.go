@@ -5366,6 +5366,10 @@ func (m *GetLastPricesRequest) validate(all bool) error {
 
 	// no validation rules for LastPriceType
 
+	if m.InstrumentStatus != nil {
+		// no validation rules for InstrumentStatus
+	}
+
 	if len(errors) > 0 {
 		return GetLastPricesRequestMultiError(errors)
 	}
@@ -7164,6 +7168,10 @@ func (m *GetClosePricesRequest) validate(all bool) error {
 			}
 		}
 
+	}
+
+	if m.InstrumentStatus != nil {
+		// no validation rules for InstrumentStatus
 	}
 
 	if len(errors) > 0 {

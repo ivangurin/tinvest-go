@@ -3,6 +3,7 @@ package tinvest_client
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -23,7 +24,8 @@ import (
 )
 
 const (
-	batchSize = 1000
+	batchSize1k = 1000
+	batchSize3k = 3000
 
 	headerXRateLimitRemaining = "x-ratelimit-remaining"
 	headerXRateLimitReset     = "x-ratelimit-reset"
@@ -375,17 +377,28 @@ func (c *Client) GetFutures(ctx context.Context, token string) (model.Instrument
 }
 
 func (c *Client) GetLastPrices(ctx context.Context, token string, IDs []string) (model.LastPrices, error) {
-	req := &contractv1.GetLastPricesRequest{
-		InstrumentId:  IDs,
-		LastPriceType: *contractv1.LastPriceType_LAST_PRICE_EXCHANGE.Enum(),
+	res := make(model.LastPrices, len(IDs))
+	chunks := slices.Chunk(IDs, batchSize3k)
+	for chunk := range chunks {
+		req := &contractv1.GetLastPricesRequest{
+			InstrumentId:  chunk,
+			LastPriceType: *contractv1.LastPriceType_LAST_PRICE_EXCHANGE.Enum(),
+		}
+
+		var header metadata.MD
+		resp, err := c.MarketDataAPI.GetLastPrices(ctx, req, grpc_utils.NewAuth(token), grpc.Header(&header))
+		if err != nil {
+			return nil, fmt.Errorf("failed to request last prices: %w", err)
+		}
+
+		for _, lastPrice := range resp.GetLastPrices() {
+			res[lastPrice.GetInstrumentUid()] = convertLastPrice(lastPrice)
+		}
+
+		wait(header)
 	}
 
-	resp, err := c.MarketDataAPI.GetLastPrices(ctx, req, grpc_utils.NewAuth(token))
-	if err != nil {
-		return nil, fmt.Errorf("failed to request last prices: %w", err)
-	}
-
-	return convertLastPrices(resp.GetLastPrices()), nil
+	return res, nil
 }
 
 func (c *Client) GetPortfolio(ctx context.Context, token string, accountID string) (PortfolioPositions, error) {
@@ -410,7 +423,7 @@ func (c *Client) GetOperations(
 ) (model.Operations, error) {
 	req := &contractv1.GetOperationsByCursorRequest{
 		AccountId:          accountID,
-		Limit:              utils.Ptr(int32(batchSize)),
+		Limit:              utils.Ptr(int32(batchSize1k)),
 		State:              contractv1.OperationState_OPERATION_STATE_EXECUTED.Enum(),
 		WithoutCommissions: utils.Ptr(true),
 		WithoutTrades:      utils.Ptr(true),
@@ -458,7 +471,7 @@ func (c *Client) GetOperationsByInstrumentID(
 		req := &contractv1.GetOperationsByCursorRequest{
 			AccountId:          accountID,
 			InstrumentId:       utils.Ptr(instrumentID),
-			Limit:              utils.Ptr(int32(batchSize)),
+			Limit:              utils.Ptr(int32(batchSize1k)),
 			State:              contractv1.OperationState_OPERATION_STATE_EXECUTED.Enum(),
 			WithoutCommissions: utils.Ptr(true),
 			WithoutTrades:      utils.Ptr(true),

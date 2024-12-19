@@ -9949,6 +9949,10 @@ func (m *AssetsRequest) validate(all bool) error {
 		// no validation rules for InstrumentType
 	}
 
+	if m.InstrumentStatus != nil {
+		// no validation rules for InstrumentStatus
+	}
+
 	if len(errors) > 0 {
 		return AssetsRequestMultiError(errors)
 	}

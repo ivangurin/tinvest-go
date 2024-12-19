@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
 	"tinvest-go/internal/model"
 	contractv1 "tinvest-go/internal/pb"
 	tinvest_client "tinvest-go/internal/pkg/client/tinvest"
@@ -132,84 +130,76 @@ func (s *service) GetInstrumentsByTicker(ctx context.Context, token string, tick
 }
 
 func (s *service) GetInstruments(ctx context.Context, token string, accountID string, IDs []string) (model.Instruments, error) {
-	eg, egCtx := errgroup.WithContext(ctx)
-	var instruments model.Instruments
-	eg.Go(func() error {
-		var err error
-		instruments, err = s.tinvestClient.GetInstruments(egCtx, token)
-		if err != nil {
-			return fmt.Errorf("failed to get instruments: %w", err)
-		}
-		return nil
-	})
-
-	var lastPrices model.LastPrices
-	eg.Go(func() error {
-		var err error
-		lastPrices, err = s.GetLastPrices(egCtx, token, accountID, IDs)
-		return err
-	})
-
-	err := eg.Wait()
+	instruments, err := s.tinvestClient.GetInstruments(ctx, token)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get instruments: %w", err)
 	}
 
-	// Calculate LastPrice
 	for _, instrument := range instruments {
-		lastPrice, exists := lastPrices[instrument.ID]
-		if exists {
-			if instrument.Type == model.InstrumentTypeCurrency {
-				if instrument.Ticker == model.TickerRUB {
-					instrument.LastPrice = 1
-				} else {
-					if lastPrice.AbsoluteValue {
-						instrument.LastPrice = lastPrice.Value
-					} else {
-						instrument.LastPrice = lastPrice.Value * float64(instrument.Lot) / instrument.Nominal
-					}
-				}
-			} else if instrument.Type == model.InstrumentTypeBond {
-				if lastPrice.AbsoluteValue {
-					instrument.LastPrice = lastPrice.Value
-				} else {
-					instrument.LastPrice = lastPrice.Value / 100 * instrument.Nominal
-				}
-
-				// Для фиги TCS00A105146 НКД указан в рублях, хотя везде стоит валюта доллары
-				if instrument.Figi == "TCS00A105146" {
-					instrument.NKDRub = instrument.NKD
-					instrument.NKD, err = s.exchangeService.Convert(ctx, model.CurrencyRUB, instrument.Currency, instrument.NKDRub, time.Now().UTC())
-					if err != nil {
-						return nil, err
-					}
-				} else {
-					instrument.NKDRub, err = s.exchangeService.Convert(ctx, instrument.Currency, model.CurrencyRUB, instrument.NKD, time.Now().UTC())
-					if err != nil {
-						return nil, err
-					}
-				}
-			} else if instrument.Type == model.InstrumentTypeFuture {
-				if lastPrice.AbsoluteValue {
-					instrument.LastPrice = lastPrice.Value
-				} else {
-					instrument.LastPrice = instrument.LastPrice /
-						instrument.MinPriceIncrement *
-						instrument.MinPriceIncrementAmount *
-						float64(instrument.Lot)
+		if instrument.Type == model.InstrumentTypeBond {
+			// Для фиги TCS00A105146 НКД указан в рублях, хотя везде стоит валюта доллары
+			if instrument.Figi == "TCS00A105146" {
+				instrument.NKDRub = instrument.NKD
+				instrument.NKD, err = s.exchangeService.Convert(ctx, model.CurrencyRUB, instrument.Currency, instrument.NKDRub, time.Now().UTC())
+				if err != nil {
+					return nil, err
 				}
 			} else {
-				instrument.LastPrice = lastPrice.Value
+				instrument.NKDRub, err = s.exchangeService.Convert(ctx, instrument.Currency, model.CurrencyRUB, instrument.NKD, time.Now().UTC())
+				if err != nil {
+					return nil, err
+				}
 			}
-		}
-
-		instrument.LastPriceRub, err = s.exchangeService.Convert(ctx, instrument.Currency, model.CurrencyRUB, instrument.LastPrice, time.Now().UTC())
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert currency for share %s: %w", instrument.ID, err)
 		}
 	}
 
 	return instruments, nil
+}
+
+func (s *service) updateLastPrices(ctx context.Context, instruments model.Instruments, lastPrices model.LastPrices) error {
+	var err error
+	for _, instrument := range instruments {
+		lastPrice, exists := lastPrices[instrument.ID]
+		if !exists {
+			continue
+		}
+
+		if instrument.Type == model.InstrumentTypeCurrency {
+			if instrument.Ticker == model.TickerRUB {
+				instrument.LastPrice = 1
+			} else {
+				if lastPrice.AbsoluteValue {
+					instrument.LastPrice = lastPrice.Value
+				} else {
+					instrument.LastPrice = lastPrice.Value * float64(instrument.Lot) / instrument.Nominal
+				}
+			}
+		} else if instrument.Type == model.InstrumentTypeBond {
+			if lastPrice.AbsoluteValue {
+				instrument.LastPrice = lastPrice.Value
+			} else {
+				instrument.LastPrice = lastPrice.Value / 100 * instrument.Nominal
+			}
+		} else if instrument.Type == model.InstrumentTypeFuture {
+			if lastPrice.AbsoluteValue {
+				instrument.LastPrice = lastPrice.Value
+			} else {
+				instrument.LastPrice = instrument.LastPrice /
+					instrument.MinPriceIncrement *
+					instrument.MinPriceIncrementAmount *
+					float64(instrument.Lot)
+			}
+		} else {
+			instrument.LastPrice = lastPrice.Value
+		}
+
+		instrument.LastPriceRub, err = s.exchangeService.Convert(ctx, instrument.Currency, model.CurrencyRUB, instrument.LastPrice, time.Now().UTC())
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (s *service) GetPortfolio(ctx context.Context, token string, accountID string) (model.Portfolio, error) {
@@ -405,6 +395,16 @@ func (s *service) GetPositions(ctx context.Context, token string, accountID stri
 		return nil, err
 	}
 
+	lastPrices, err := s.GetLastPrices(ctx, token, accountID, operations.GetInstrumentsIDs())
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.updateLastPrices(ctx, instruments, lastPrices)
+	if err != nil {
+		return nil, err
+	}
+
 	positionsMap := map[string]*model.Position{}
 
 	// Операции по бумагам
@@ -427,9 +427,9 @@ func (s *service) GetPositions(ctx context.Context, token string, accountID stri
 			position =
 				&model.Position{
 					InstrumentID: instrument.ID,
-					Ticker:       instrument.Ticker,
-					Figi:         instrument.Figi,
 					Isin:         instrument.Isin,
+					Figi:         instrument.Figi,
+					Ticker:       instrument.Ticker,
 					Type:         instrument.Type,
 					Name:         instrument.Name,
 					Currency:     instrument.Currency,
