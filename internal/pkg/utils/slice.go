@@ -32,16 +32,6 @@ func Contains[T comparable](slice []T, value T) bool {
 	return Index(slice, value) >= 0
 }
 
-// ToMap преобразует slice в map
-func ToMap[TKey comparable, TValue, TArg any](collection []TArg, selector func(arg TArg) (TKey, TValue)) map[TKey]TValue {
-	result := make(map[TKey]TValue, len(collection))
-	for _, element := range collection {
-		k, v := selector(element)
-		result[k] = v
-	}
-	return result
-}
-
 // ToMapByField индексирует слайс в map по полю
 func ToMapByField[TKey comparable, TArg any](collection []TArg, selector func(arg TArg) TKey) map[TKey]TArg {
 	result := make(map[TKey]TArg, len(collection))

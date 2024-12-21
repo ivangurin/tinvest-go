@@ -99,10 +99,12 @@ func (c *Client) GetInstrumentsByIDs(ctx context.Context, token string, IDs []st
 		return nil, err
 	}
 
-	res := make(model.Instruments, len(IDs))
-	for _, id := range IDs {
-		if instrument, exists := instruments[id]; exists {
-			res[id] = instrument
+	ids := utils.ToSet(IDs, func(id string) string { return id })
+
+	res := make(model.Instruments, 0, len(IDs))
+	for _, instrument := range instruments {
+		if ids.Has(instrument.ID) {
+			res = append(res, instrument)
 		}
 	}
 
@@ -110,7 +112,7 @@ func (c *Client) GetInstrumentsByIDs(ctx context.Context, token string, IDs []st
 }
 
 func (c *Client) GetInstrumentsByIDsSlow(ctx context.Context, token string, IDs []string) (model.Instruments, error) {
-	instruments := make(model.Instruments, len(IDs))
+	instruments := make(model.Instruments, 0, len(IDs))
 	var header metadata.MD
 	for _, id := range IDs {
 		if id == "" {
@@ -145,21 +147,21 @@ func (c *Client) GetInstrumentsByIDsSlow(ctx context.Context, token string, IDs 
 			if err != nil {
 				return nil, fmt.Errorf("failed to request currency by id %s: %w", id, err)
 			}
-			instruments[id] = convertCurrency(currResp.GetInstrument())
+			instruments = append(instruments, convertCurrency(currResp.GetInstrument()))
 		} else if resp.GetInstrument().GetInstrumentKind() == contractv1.InstrumentType_INSTRUMENT_TYPE_BOND {
 			bondResp, err = c.InstrumentsAPI.BondBy(ctx, req, grpc_utils.NewAuth(token))
 			if err != nil {
 				return nil, fmt.Errorf("failed to request bond by id %s: %w", id, err)
 			}
-			instruments[id] = convertBond(bondResp.GetInstrument())
+			instruments = append(instruments, convertBond(bondResp.GetInstrument()))
 		} else if resp.GetInstrument().GetInstrumentKind() == contractv1.InstrumentType_INSTRUMENT_TYPE_FUTURES {
 			futureResp, err = c.InstrumentsAPI.FutureBy(ctx, req, grpc_utils.NewAuth(token))
 			if err != nil {
 				return nil, fmt.Errorf("failed to request future by id %s: %w", id, err)
 			}
-			instruments[id] = convertFuture(futureResp.GetInstrument())
+			instruments = append(instruments, convertFuture(futureResp.GetInstrument()))
 		} else {
-			instruments[id] = convertInstrument(resp.GetInstrument())
+			instruments = append(instruments, convertInstrument(resp.GetInstrument()))
 		}
 	}
 
@@ -244,27 +246,51 @@ func (c *Client) GetInstruments(ctx context.Context, token string) (model.Instru
 		return nil, err
 	}
 
-	instruments := make(model.Instruments, len(currencies)+len(shares)+len(bonds)+len(etfs)+len(futures))
-	for _, currency := range currencies {
-		instruments[currency.ID] = currency
-	}
-	for _, share := range shares {
-		instruments[share.ID] = share
-	}
-	for _, bond := range bonds {
-		instruments[bond.ID] = bond
-	}
-	for _, etf := range etfs {
-		instruments[etf.ID] = etf
-	}
-	for _, future := range futures {
-		instruments[future.ID] = future
+	instruments := make(model.Instruments, 0, len(currencies)+len(shares)+len(bonds)+len(etfs)+len(futures))
+	instruments = append(instruments, currencies...)
+	instruments = append(instruments, shares...)
+	instruments = append(instruments, bonds...)
+	instruments = append(instruments, etfs...)
+	instruments = append(instruments, futures...)
+
+	// Когда исин равен тикеру или фиги равен тикеру или тикер заканчивается на -RM, то ищем оригинальный тикер
+	for _, instrument := range instruments {
+		if instrument.Isin == instrument.Ticker ||
+			instrument.Figi == instrument.Ticker ||
+			strings.HasSuffix(instrument.Ticker, "-RM") {
+			for _, origInstrument := range instruments {
+				if origInstrument.Isin == instrument.Isin &&
+					origInstrument.Ticker != instrument.Ticker &&
+					origInstrument.Figi != origInstrument.Ticker &&
+					!strings.HasSuffix(origInstrument.Ticker, "-RM") &&
+					strings.HasPrefix(origInstrument.Figi, "BBG") {
+					instrument.OriginalID = origInstrument.ID
+					break
+				}
+			}
+			if instrument.OriginalID != "" {
+				continue
+			}
+			for _, origInstrument := range instruments {
+				if origInstrument.Isin == instrument.Isin &&
+					origInstrument.Ticker != instrument.Ticker &&
+					origInstrument.Figi != origInstrument.Ticker &&
+					!strings.HasSuffix(origInstrument.Ticker, "-RM") {
+					instrument.OriginalID = origInstrument.ID
+					break
+				}
+			}
+		}
 	}
 
-	// Когда фиги начинается не с TCS00, то попробуем найти инструмент с таким же ISIN,
+	// Когда фиги начинается с TCSXX, то попробуем найти инструмент с таким же ISIN,
 	// но с фиги начинающейся TCS00
 	for _, instrument := range instruments {
-		if !strings.HasPrefix(instrument.Figi, "TCS00") {
+		if instrument.OriginalID != "" {
+			continue
+		}
+		if strings.HasPrefix(instrument.Figi, "TCS") &&
+			!strings.HasPrefix(instrument.Figi, "TCS00") {
 			for _, origInstrument := range instruments {
 				if origInstrument.Isin == instrument.Isin && strings.HasPrefix(origInstrument.Figi, "TCS00") {
 					instrument.OriginalID = origInstrument.ID

@@ -14,6 +14,7 @@ import (
 	tinvest_client "tinvest-go/internal/pkg/client/tinvest"
 	"tinvest-go/internal/pkg/logger"
 	"tinvest-go/internal/pkg/trades"
+	"tinvest-go/internal/pkg/utils"
 	exchange_service "tinvest-go/internal/service/exchange"
 )
 
@@ -23,10 +24,11 @@ type IService interface {
 	GetAccountByName(ctx context.Context, token string, name string) (*model.Account, error)
 	GetFavorites(ctx context.Context, token string) (model.Instruments, error)
 	GetInstruments(ctx context.Context, token string, accountID string, IDs []string) (model.Instruments, error)
+	GetInstrumentsMapByIDs(ctx context.Context, token string, accountID string, IDs []string) (map[string]*model.Instrument, error)
 	GetInstrumentsByTicker(ctx context.Context, token string, ticker string) (model.Instruments, error)
 	GetPortfolio(ctx context.Context, token string, accountID string) (model.Portfolio, error)
 	GetPositions(ctx context.Context, token string, accountID string, from time.Time, to time.Time, instrumentIDs []string) (model.Positions, error)
-	GetOperations(ctx context.Context, token string, accountID string, from time.Time, to time.Time, instrumentIDs []string) (model.Instruments, model.Operations, error)
+	GetOperations(ctx context.Context, token string, accountID string, from time.Time, to time.Time, instrumentIDs []string) (map[string]*model.Instrument, model.Operations, error)
 	GetTotals(ctx context.Context, token string, accountID string, from time.Time, to time.Time) (model.Totals, error)
 	GetCandles(ctx context.Context, token string, instrumentID string, interval contractv1.CandleInterval, from time.Time, to time.Time) (model.Candles, error)
 	GetTrades(ctx context.Context, token string, accountID string, from time.Time, to time.Time) (model.Trades, error)
@@ -109,17 +111,31 @@ func (s *service) GetFavorites(ctx context.Context, token string) (model.Instrum
 		return nil, err
 	}
 
-	res := make(model.Instruments, len(favorites))
+	instruments, err := s.GetInstruments(ctx, token, "", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	instrumentsByIDs := utils.ToMap(instruments, func(instrument *model.Instrument) (string, *model.Instrument) {
+		return instrument.ID, instrument
+	})
+
+	lastPrices, err := s.GetLastPrices(ctx, token, "", instruments.GetIDs())
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.updateLastPrices(ctx, instrumentsByIDs, lastPrices)
+	if err != nil {
+		return nil, err
+	}
+
+	res := make(model.Instruments, 0, len(favorites))
 	for _, favorite := range favorites {
-		instruments, err := s.GetInstruments(ctx, token, "", []string{favorite.ID})
-		if err != nil {
-			logger.Errorf(ctx, "error on get instrument %s by id %s: %s", favorite.Ticker, favorite.ID, err.Error())
-			continue
+		instrument, exists := instrumentsByIDs[favorite.ID]
+		if exists {
+			res = append(res, instrument)
 		}
-		if len(instruments) == 0 {
-			continue
-		}
-		res[favorite.ID] = instruments[favorite.ID]
 	}
 
 	return res, nil
@@ -127,6 +143,17 @@ func (s *service) GetFavorites(ctx context.Context, token string) (model.Instrum
 
 func (s *service) GetInstrumentsByTicker(ctx context.Context, token string, ticker string) (model.Instruments, error) {
 	return s.tinvestClient.GetInstrumentsByTicker(ctx, token, ticker)
+}
+
+func (s *service) GetInstrumentsMapByIDs(ctx context.Context, token string, accountID string, IDs []string) (map[string]*model.Instrument, error) {
+	instruments, err := s.tinvestClient.GetInstruments(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+
+	return utils.ToMap(instruments, func(instrument *model.Instrument) (string, *model.Instrument) {
+		return instrument.ID, instrument
+	}), nil
 }
 
 func (s *service) GetInstruments(ctx context.Context, token string, accountID string, IDs []string) (model.Instruments, error) {
@@ -156,7 +183,7 @@ func (s *service) GetInstruments(ctx context.Context, token string, accountID st
 	return instruments, nil
 }
 
-func (s *service) updateLastPrices(ctx context.Context, instruments model.Instruments, lastPrices model.LastPrices) error {
+func (s *service) updateLastPrices(ctx context.Context, instruments map[string]*model.Instrument, lastPrices model.LastPrices) error {
 	var err error
 	for _, instrument := range instruments {
 		lastPrice, exists := lastPrices[instrument.ID]
@@ -184,10 +211,12 @@ func (s *service) updateLastPrices(ctx context.Context, instruments model.Instru
 			if lastPrice.AbsoluteValue {
 				instrument.LastPrice = lastPrice.Value
 			} else {
-				instrument.LastPrice = instrument.LastPrice /
-					instrument.MinPriceIncrement *
-					instrument.MinPriceIncrementAmount *
-					float64(instrument.Lot)
+				if instrument.MinPriceIncrement != 0 {
+					instrument.LastPrice = instrument.LastPrice /
+						instrument.MinPriceIncrement *
+						instrument.MinPriceIncrementAmount *
+						float64(instrument.Lot)
+				}
 			}
 		} else {
 			instrument.LastPrice = lastPrice.Value
@@ -217,8 +246,9 @@ func (s *service) GetPortfolio(ctx context.Context, token string, accountID stri
 		portfolioPosition :=
 			&model.PortfolioPosition{
 				InstrumentID: position.InstrumentID,
-				Name:         position.Name,
+				Isin:         position.Isin,
 				Ticker:       position.Ticker,
+				Name:         position.Name,
 				Currency:     position.Currency,
 				Quantity:     position.QuantityEnd,
 				PriceEnd:     position.PriceEnd,
@@ -227,7 +257,7 @@ func (s *service) GetPortfolio(ctx context.Context, token string, accountID stri
 				ValueEndRub:  position.ValueEndRub,
 			}
 
-		trades := position.Trades.GetUnclosed()
+		trades := position.Trades.GetOpened()
 		for _, trade := range trades {
 			if trade.QuantitySell == 0 {
 				portfolioPosition.Value += trade.ValueBuy
@@ -293,13 +323,13 @@ func (s *service) GetLastPrices(ctx context.Context, token string, accountID str
 	return lastPrices, nil
 }
 
-func (s *service) GetOperations(ctx context.Context, token string, accountID string, from time.Time, to time.Time, instrumentIDs []string) (model.Instruments, model.Operations, error) {
+func (s *service) GetOperations(ctx context.Context, token string, accountID string, from time.Time, to time.Time, instrumentIDs []string) (map[string]*model.Instrument, model.Operations, error) {
 	operations, err := s.tinvestClient.GetOperations(ctx, token, accountID, from, to)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get operations for account %s: %w", accountID, err)
 	}
 
-	instruments, err := s.GetInstruments(ctx, token, accountID, nil)
+	instruments, err := s.GetInstrumentsMapByIDs(ctx, token, accountID, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get instruments for account %s: %w", accountID, err)
 	}
@@ -509,12 +539,6 @@ func (s *service) GetPositions(ctx context.Context, token string, accountID stri
 		case contractv1.OperationType_OPERATION_TYPE_INPUT_SECURITIES.String():
 			position.QuantityBuy += operation.Quantity
 
-		case contractv1.OperationType_OPERATION_TYPE_OUT_STAMP_DUTY.String():
-			continue
-
-		case contractv1.OperationType_OPERATION_TYPE_INP_MULTI.String():
-			continue
-
 		default:
 			logger.Warnf(ctx, "Unknown operation type %s: %+v for position %+v", operation.Type, operation, position)
 		}
@@ -576,7 +600,8 @@ func (s *service) GetPositions(ctx context.Context, token string, accountID stri
 			contractv1.OperationType_OPERATION_TYPE_BUY.String(),
 			contractv1.OperationType_OPERATION_TYPE_SELL.String(),
 			contractv1.OperationType_OPERATION_TYPE_OUT_STAMP_DUTY.String(),
-			contractv1.OperationType_OPERATION_TYPE_INP_MULTI.String():
+			contractv1.OperationType_OPERATION_TYPE_INP_MULTI.String(),
+			contractv1.OperationType_OPERATION_TYPE_OUT_MULTI.String():
 			continue
 
 		default:

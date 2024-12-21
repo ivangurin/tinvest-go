@@ -65,14 +65,6 @@ func convertInstrument(instrument *contractv1.Instrument) *model.Instrument {
 	}
 }
 
-func convertLastPrices(lastPrices []*contractv1.LastPrice) model.LastPrices {
-	res := make(model.LastPrices, len(lastPrices))
-	for _, lastPrice := range lastPrices {
-		res[lastPrice.GetInstrumentUid()] = convertLastPrice(lastPrice)
-	}
-	return res
-}
-
 func convertLastPrice(lastPrice *contractv1.LastPrice) *model.LastPrice {
 	return &model.LastPrice{
 		Value: utils.QuotationToFloat64(lastPrice.GetPrice()),
@@ -80,9 +72,9 @@ func convertLastPrice(lastPrice *contractv1.LastPrice) *model.LastPrice {
 }
 
 func convertCurrencies(currencies []*contractv1.Currency) model.Instruments {
-	res := make(model.Instruments, len(currencies))
+	res := make(model.Instruments, 0, len(currencies))
 	for _, currency := range currencies {
-		res[currency.GetUid()] = convertCurrency(currency)
+		res = append(res, convertCurrency(currency))
 	}
 	return res
 }
@@ -104,9 +96,9 @@ func convertCurrency(currency *contractv1.Currency) *model.Instrument {
 }
 
 func convertShares(currencies []*contractv1.Share) model.Instruments {
-	res := make(model.Instruments, len(currencies))
+	res := make(model.Instruments, 0, len(currencies))
 	for _, share := range currencies {
-		res[share.GetUid()] = convertShare(share)
+		res = append(res, convertShare(share))
 	}
 	return res
 }
@@ -127,9 +119,9 @@ func convertShare(share *contractv1.Share) *model.Instrument {
 }
 
 func convertBonds(bonds []*contractv1.Bond) model.Instruments {
-	res := make(model.Instruments, len(bonds))
+	res := make(model.Instruments, 0, len(bonds))
 	for _, bond := range bonds {
-		res[bond.GetUid()] = convertBond(bond)
+		res = append(res, convertBond(bond))
 	}
 	return res
 }
@@ -152,9 +144,9 @@ func convertBond(bond *contractv1.Bond) *model.Instrument {
 }
 
 func convertEtfs(etfs []*contractv1.Etf) model.Instruments {
-	res := make(model.Instruments, len(etfs))
+	res := make(model.Instruments, 0, len(etfs))
 	for _, etf := range etfs {
-		res[etf.GetUid()] = convertEtf(etf)
+		res = append(res, convertEtf(etf))
 	}
 	return res
 }
@@ -175,9 +167,9 @@ func convertEtf(etf *contractv1.Etf) *model.Instrument {
 }
 
 func convertFutures(futures []*contractv1.Future) model.Instruments {
-	res := make(model.Instruments, len(futures))
+	res := make(model.Instruments, 0, len(futures))
 	for _, future := range futures {
-		res[future.GetUid()] = convertFuture(future)
+		res = append(res, convertFuture(future))
 	}
 	return res
 }

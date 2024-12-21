@@ -28,19 +28,26 @@ type Trade struct {
 type TradeList []*Trade
 
 func NewTrades() Trades {
-
 	return Trades{}
-
 }
 
 func (l *Trades) GetAll() TradeList {
 	return l.trades
 }
 
-func (l *Trades) GetClosed() TradeList {
-
+func (l *Trades) GetOpened() TradeList {
 	trades := TradeList{}
+	for _, trade := range l.trades {
+		if trade.Total == 0 {
+			trades = append(trades, trade)
+		}
+	}
 
+	return trades
+}
+
+func (l *Trades) GetClosed() TradeList {
+	trades := TradeList{}
 	for _, trade := range l.trades {
 		if trade.QuantityBuy != 0 &&
 			trade.QuantitySell != 0 {
@@ -49,21 +56,6 @@ func (l *Trades) GetClosed() TradeList {
 	}
 
 	return trades
-
-}
-
-func (l *Trades) GetUnclosed() TradeList {
-
-	trades := TradeList{}
-
-	for _, trade := range l.trades {
-		if trade.Total == 0 {
-			trades = append(trades, trade)
-		}
-	}
-
-	return trades
-
 }
 
 func (l *Trades) AddPurchase(time time.Time, quantity float64, value float64, valueRub float64) {
@@ -185,13 +177,10 @@ func (l *Trades) AddPurchase(time time.Time, quantity float64, value float64, va
 		if quantity == 0 {
 			break
 		}
-
 	}
-
 }
 
 func (l *Trades) AddSale(date time.Time, quantity float64, value float64, valueRub float64) {
-
 	if quantity == 0 {
 		return
 	}
@@ -312,5 +301,4 @@ func (l *Trades) AddSale(date time.Time, quantity float64, value float64, valueR
 		}
 
 	}
-
 }

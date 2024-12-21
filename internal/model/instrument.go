@@ -30,12 +30,12 @@ type Instrument struct {
 	MinPriceIncrementAmount float64
 }
 
-type Instruments map[string]*Instrument
+type Instruments []*Instrument
 
 func (i *Instruments) GetIDs() []string {
 	res := make([]string, 0, len(*i))
-	for id := range *i {
-		res = append(res, id)
+	for _, instrument := range *i {
+		res = append(res, instrument.ID)
 	}
 	return res
 }
