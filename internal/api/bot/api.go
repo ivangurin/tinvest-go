@@ -60,7 +60,7 @@ var (
 	regexpAccountPosition  *regexp.Regexp = newRegexp(`^\/account\/(.+)\/position$`)
 	regexpAccountTrades    *regexp.Regexp = newRegexp(`^\/account\/(.+)\/trades$`)
 	regexpAccountTradesFor *regexp.Regexp = newRegexp(`^\/account\/(.+)\/trades-for\/(.+)$`)
-	regexpRsiDaily         *regexp.Regexp = newRegexp(`^\/rsi/daily$`)
+	regexpRsiDaily         *regexp.Regexp = newRegexp(`^\/rsi$`)
 )
 
 func NewAPI(
