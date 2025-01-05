@@ -90,3 +90,17 @@ PHONY: stop
 stop:
 	docker compose down
 	docker image rm tinvest-bot
+
+PHONY: pull-and-run
+pull-and-run:
+	docker stop tinvest-go
+	docker rm tinvest-go
+	docker rmi ghcr.io/ivangurin/tinvest-go
+	docker pull ghcr.io/ivangurin/tinvest-go
+	docker run -d \
+		--name tinvest-go \
+		-e TINVEST_BOT_TOKEN \
+		--env-file .env \
+		-v ./database:/app/database \
+		--restart always \
+		ghcr.io/ivangurin/tinvest-go
